@@ -32,10 +32,11 @@ the list open `wp_ca<SteamID>` = `id~name~count;...` and `wp_cb<SteamID>` = `id~
 shows when `wp_chalk` is set.
 
 ## Help button
-A **?** button left of the heading (right of the admin shield for admins) opens the server's command list: each command
-and its description, plus an "Admin" part for admins. Clicking a command opens the chat with `!command ` typed in.
-The server (Cove core, `PublishCommandList`) writes `wp_cmds` (commands everyone can use) and `wp_cmds_a` (admin
-commands) into the lobby data as `command<TAB>description` lines; the button stays hidden while `wp_cmds` is empty.
+A **?** button left of the heading (right of the admin shield for admins) opens the list of commands the player can use.
+Opening it sends `!help` hidden; the server's answer ("Commands:" and one `command - description` line each, cut into
+~480 character messages by the server) is taken out of the chat as it arrives, joined back up and shown as the list.
+Server messages that are not part of the answer, and every player message, stay in chat. Clicking a command opens
+the chat with `!command ` typed in. No server changes are needed.
 
 ## Install (players)
 1. Install GDWeave if you do not have it yet.

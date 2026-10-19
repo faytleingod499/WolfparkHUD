@@ -1,6 +1,6 @@
 {
     "name": "WolfparkHUD",
-    "version_number": "1.16.0",
+    "version_number": "1.16.1",
     "website_url": "https://github.com/faytleingod499/WolfparkHUD",
     "description": "The player panel for Ether's Wolf Park: wolf coins, Feed Wolves, Buy, Gamble, a chalk saves menu and admin tools. Only appears on servers that support it. This mod was created with the assistance of AI.",
     "dependencies": [

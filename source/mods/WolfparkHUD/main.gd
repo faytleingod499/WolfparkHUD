@@ -68,13 +68,16 @@ var admin_box
 var admin_signature = ""
 var ban_armed = {} # steam id -> until when its Ban button is waiting for the second click
 
-# the help button: the server's commands (it lists them in "wp_cmds", and the admin ones in "wp_cmds_a")
+# the help button: asks the server for !help quietly and shows its answer here instead of in chat
 var help_button
 var help_box
 var help_open = false
 var help_commands = [] # [command, description]
-var help_admin_commands = []
 var help_signature = ""
+var help_wait_until = 0 # catching the answer to !help until then
+var help_capturing = false
+var help_text = ""
+var help_last_seen = ""
 
 # the Chalk menu: your chalk saves, from the server's "Chalk Saves" plugin (it lists them in "wp_cs<SteamID>")
 var chalk_on = false
@@ -434,7 +437,6 @@ func _poll():
 		_rebuild_admin(net, lobby)
 
 	_poll_chalk(net, lobby)
-	_poll_help(lobby)
 
 	# the bet limits "min,max", empty when the server has no gambling
 	var gamble_text = str(steam.getLobbyData(lobby, "wp_gamble")).split(",")
@@ -619,19 +621,27 @@ func _connect_chat():
 # Every chat line a player writes carries their coloured name, so a global line without any colour tag
 # comes from the server (or the game itself). Those get wrapped in the server colour.
 func _on_chat_update():
-	if not active or chat_color == "":
+	if not active:
 		return
 	var net = get_node_or_null("/root/Network")
 	if net == null:
 		return
 	var lines = net.GAMECHAT_COLLECTIONS
-	var changed = false
+	var changed = _capture_help(lines)
+	if chat_color == "":
+		_chat_done(net, lines, changed)
+		return
 	for i in range(lines.size()):
 		var line = str(lines[i])
 		if line.find("[color=") == -1 and line.strip_edges() != "":
 			var body = line.substr(1) if line.begins_with("\n") else line
 			lines[i] = "\n[color=#" + chat_color + "]" + body + "[/color]"
 			changed = true
+	_chat_done(net, lines, changed)
+
+
+func _chat_done(net, lines, changed):
+	help_last_seen = str(lines[lines.size() - 1]) if not lines.empty() else ""
 	if not changed:
 		return
 	var all = ""
@@ -712,7 +722,11 @@ func _refresh():
 	title_label.text = title_text
 	title_label.add_color_override("font_color", title_color)
 	admin_button.visible = is_admin
-	help_button.visible = not help_commands.empty() or (is_admin and not help_admin_commands.empty())
+	help_button.visible = true
+	if help_capturing and OS.get_ticks_msec() > help_wait_until:
+		help_capturing = false # the whole answer is in
+	if help_open:
+		_rebuild_help()
 	help_button.add_color_override("font_color", Color(0.55, 1.0, 1.0) if help_open else Color(1, 1, 1))
 	var help_show = help_open and help_button.visible
 	if help_box.visible != help_show:
@@ -1597,46 +1611,78 @@ func _on_chalk_offer(take):
 
 
 # --- the help button ---
-
-func _poll_help(lobby):
-	help_commands = _parse_commands(str(steam.getLobbyData(lobby, "wp_cmds")))
-	help_admin_commands = _parse_commands(str(steam.getLobbyData(lobby, "wp_cmds_a"))) if is_admin else []
-	if help_open:
-		_rebuild_help()
-
-
-# "command TAB description" lines
-func _parse_commands(text):
-	var list = []
-	for line in text.split("\n", false):
-		var bits = line.split("\t")
-		if bits.size() >= 1 and bits[0].strip_edges() != "":
-			list.append([bits[0].strip_edges(), bits[1].strip_edges() if bits.size() >= 2 else ""])
-	return list
-
+# Cove servers answer !help with "Commands:" and one "command - description" line per command the player can use
+# (only those: admin commands only for admins). The answer comes as one or more chat messages from the server, which
+# are taken out of the chat and shown in the list instead.
 
 func _on_help_toggle():
 	help_open = not help_open
 	help_signature = ""
 	if help_open:
+		help_commands = []
+		help_text = ""
+		help_capturing = false
+		help_wait_until = OS.get_ticks_msec() + 5000
+		_say("!help")
 		_rebuild_help()
 
 
+# called for every new chat line while an answer is expected; true when the line was taken out of the chat
+func _capture_help(lines):
+	if lines.empty():
+		return false
+	var last = str(lines[lines.size() - 1])
+	if last == help_last_seen:
+		return false # nothing new in the global chat (it was a local message)
+	var now = OS.get_ticks_msec()
+	if now > help_wait_until:
+		return false
+	if last.find("[color=") != -1:
+		return false # a player's message: those always carry their coloured name
+	var body = last.substr(1) if last.begins_with("\n") else last
+	if not help_capturing:
+		if not body.strip_edges().begins_with("Commands:"):
+			return false
+		help_capturing = true
+		help_text = body
+	else:
+		help_text += body # the server cuts long messages into pieces, they join back up exactly
+	help_wait_until = now + 1500 # a little longer for the next piece
+	lines.remove(lines.size() - 1)
+	help_commands = _parse_help(help_text)
+	return true
+
+
+func _parse_help(text):
+	var list = []
+	for line in text.split("\n", false):
+		line = line.strip_edges()
+		if line.begins_with("Commands:"):
+			continue
+		var cut = line.find(" - ")
+		if cut > 0:
+			list.append([line.left(cut).strip_edges(), line.substr(cut + 3).strip_edges()])
+		elif line != "" and not list.empty() and help_capturing:
+			# a piece boundary can fall anywhere, a line without " - " belongs to the one before
+			list[list.size() - 1][1] += " " + line
+	return list
+
+
 func _rebuild_help():
-	var signature = str([help_commands, help_admin_commands])
+	var waiting = help_commands.empty() and OS.get_ticks_msec() < help_wait_until
+	var signature = str([help_commands, waiting])
 	if signature == help_signature:
 		return
 	help_signature = signature
 	for child in help_box.get_children():
 		help_box.remove_child(child)
 		child.queue_free()
+	if help_commands.empty():
+		var note = Label.new()
+		note.text = "Asking the server..." if waiting else "The server did not answer !help"
+		note.add_color_override("font_color", Color(1, 1, 1, 0.55))
+		help_box.add_child(note)
 	_add_command_rows(help_commands)
-	if not help_admin_commands.empty():
-		var header = Label.new()
-		header.text = "Admin"
-		header.add_color_override("font_color", Color(1.0, 0.85, 0.4))
-		help_box.add_child(header)
-		_add_command_rows(help_admin_commands)
 	panel.rect_size = Vector2()
 
 

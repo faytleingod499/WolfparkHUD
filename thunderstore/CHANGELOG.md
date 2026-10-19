@@ -1,7 +1,8 @@
-## 1.16.0
+## 1.16.1
 - New **?** button left of the title (next to the admin shield for admins): a list of every command you can use on
-  the server, with what it does. Admins also see the admin commands. Click a command to have it typed in chat for you.
-- Needs the updated server; on older servers the button stays hidden.
+  the server, with what it does. Click a command to have it typed in chat for you.
+- It asks the server with !help in the background and shows the answer in the list instead of in chat, so it works
+  without any server update.
 
 ## 1.15.0
 - New **Chalk** button: a menu for your chalk saves. Pick a canvas (it starts on the nearest one), type a name and
