@@ -10,6 +10,7 @@ rm -f out/WolfparkHUD-mod.zip out/WolfparkHUD-$V.zip
 (cd package && zip -qr ../out/WolfparkHUD-mod.zip WolfparkHUD)
 T=$(mktemp -d)
 cp thunderstore/manifest.json thunderstore/README.md thunderstore/CHANGELOG.md thunderstore/icon.png $T/
+cp LICENSE $T/
 mkdir -p $T/GDWeave/mods/WolfparkHUD
 cp package/WolfparkHUD/manifest.json package/WolfparkHUD/WolfparkHUD.pck $T/GDWeave/mods/WolfparkHUD/
 (cd $T && zip -qr - .) > out/WolfparkHUD-$V.zip

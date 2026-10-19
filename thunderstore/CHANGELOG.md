@@ -1,3 +1,7 @@
+## 1.14.2
+- The mod has its own GitHub repository now: https://github.com/faytleingod499/WolfparkHUD
+- Released under the MIT License: you're free to copy, change and share your own versions.
+
 ## 1.14.1
 - The description now notes that this mod was created with the assistance of AI.
 

@@ -1,6 +1,6 @@
 {
     "name": "WolfparkHUD",
-    "version_number": "1.14.1",
+    "version_number": "1.14.2",
     "website_url": "https://github.com/faytleingod499/WolfparkHUD",
     "description": "The coin panel for Ether's Wolf Park: your wolf coins, Feed Wolves, a Buy menu and Gamble. Only appears on servers running the Cove Feed plugin, does nothing anywhere else. This mod was created with the assistance of AI.",
     "dependencies": [
