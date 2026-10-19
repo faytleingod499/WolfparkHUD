@@ -1,3 +1,10 @@
+## 1.16.3
+- The command list is in alphabetical order.
+- Clicking a command sends it to the server right away, no typing. Commands that need more (a player, an amount, a
+  name...) open a small box under them with a hint of what to type; press Enter or Send.
+- Commands that affect everyone (exit, clearchalk, clearoutside, reloadplugins, ban, say) are red and need a second
+  click.
+
 ## 1.16.2
 - The command list is more compact: a smaller font, at most a few rows tall (less near the bottom of the screen) with
   a scrollbar, and every command is a button you can click to type it in chat.

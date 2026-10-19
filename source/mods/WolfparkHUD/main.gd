@@ -77,6 +77,34 @@ var help_list
 var small_font = null
 const HELP_WIDTH = 380
 const HELP_MAX_HEIGHT = 260
+const HELP_DEBOUNCE_MS = 1000
+# commands that need (or can take) more after them, with what to type: [hint, required]
+const ARG_HINTS = {
+	"kick": ["player name or Steam ID", true],
+	"ban": ["player name or Steam ID", true],
+	"unban": ["Steam ID", true],
+	"say": ["message to everyone", true],
+	"spawn": ["what to spawn", true],
+	"setjoinable": ["true or false", true],
+	"steam": ["player name or fisher ID", true],
+	"buy": ["item", true],
+	"gamble": ["coins", true],
+	"clearstrikes": ["player", true],
+	"chalksave": ["name and canvas 0-3", true],
+	"chalkload": ["name and canvas 0-3", true],
+	"chalkdelete": ["name", true],
+	"chalkshare": ["name and player", true],
+	"chalkaccept": ["new name (optional)", false],
+	"clearchalk": ["canvas 0-3, empty for all", false],
+	"clearoutside": ["canvas 0-3 (optional)", false],
+	"reloadplugins": ["plugin id (optional)", false],
+	"joinmessage": ["new message (optional)", false],
+	"strikes": ["player (optional)", false],
+}
+# these change things for everyone, so they need a second click
+const CONFIRM_COMMANDS = ["exit", "shutdown", "clearchalk", "clearoutside", "reloadplugins", "ban", "say"]
+# not shown: !help is what fills the list, the other two are used by the Chalk menu
+const HIDDEN_COMMANDS = ["help", "chalkowners", "chalkbrowse"]
 var help_open = false
 var help_commands = [] # [command, description]
 var help_signature = ""
@@ -84,6 +112,12 @@ var help_wait_until = 0 # catching the answer to !help until then
 var help_capturing = false
 var help_text = ""
 var help_last_seen = ""
+var help_arg_for = "" # the command whose box is open
+var help_arg_field = null
+var help_rows_for = ""
+var help_armed = {} # command -> until when it waits for the second click
+var help_sent = {} # command -> until when its button says "Sent"
+var help_ready_at = 0
 
 # the Chalk menu: your chalk saves, from the server's "Chalk Saves" plugin (it lists them in "wp_cs<SteamID>")
 var chalk_on = false
@@ -752,6 +786,8 @@ func _refresh():
 	title_label.add_color_override("font_color", title_color)
 	admin_button.visible = is_admin
 	help_button.visible = true
+	if help_open:
+		_refresh_help_buttons(OS.get_ticks_msec())
 	if help_capturing and OS.get_ticks_msec() > help_wait_until:
 		help_capturing = false # the whole answer is in
 	if help_open:
@@ -1052,6 +1088,8 @@ func _typing_field():
 		return bet_field
 	if chalk_name_field != null and chalk_name_field.has_focus():
 		return chalk_name_field
+	if help_arg_field != null and is_instance_valid(help_arg_field) and help_arg_field.has_focus():
+		return help_arg_field
 	return null
 
 
@@ -1649,6 +1687,10 @@ func _on_chalk_offer(take):
 func _on_help_toggle():
 	help_open = not help_open
 	help_signature = ""
+	help_arg_for = ""
+	help_armed.clear()
+	if not help_open and help_arg_field != null and is_instance_valid(help_arg_field) and help_arg_field.has_focus():
+		help_arg_field.release_focus()
 	if help_open:
 		help_commands = []
 		help_text = ""
@@ -1681,6 +1723,7 @@ func _capture_help(lines):
 	help_wait_until = now + 1500 # a little longer for the next piece
 	lines.remove(lines.size() - 1)
 	help_commands = _parse_help(help_text)
+	help_commands.sort_custom(self, "_by_command")
 	return true
 
 
@@ -1705,15 +1748,21 @@ func _rebuild_help():
 	if signature == help_signature:
 		return
 	help_signature = signature
+	# opening a command's box rebuilds the rows, stay where the list was scrolled to
+	var commands_now = str(help_commands)
+	var keep = help_scroll.scroll_vertical if commands_now == help_rows_for else 0
+	help_rows_for = commands_now
+	help_arg_field = null
 	for child in help_list.get_children():
 		help_list.remove_child(child)
 		child.queue_free()
 	help_note.visible = help_commands.empty()
 	help_note.text = "Asking the server..." if waiting else "The server did not answer !help"
 	help_scroll.visible = not help_commands.empty()
-	help_scroll.scroll_vertical = 0
 	_add_command_rows(help_commands)
 	_fit_help()
+	help_scroll.scroll_vertical = keep
+	help_scroll.call_deferred("set", "scroll_vertical", keep) # again once the new rows have their size
 
 
 # as tall as the list, but never more than HELP_MAX_HEIGHT or past the bottom of the screen
@@ -1741,9 +1790,30 @@ func _small_font():
 	return small_font
 
 
+func _by_command(a, b):
+	return a[0].to_lower() < b[0].to_lower()
+
+
+# [hint, required] for a command that takes more after it, or null
+func _command_args(command, description):
+	if ARG_HINTS.has(command):
+		return ARG_HINTS[command]
+	var at = description.find("Usage:")
+	if at >= 0:
+		var usage = description.substr(at + 6).strip_edges()
+		if usage.begins_with("!" + command):
+			usage = usage.substr(command.length() + 1).strip_edges()
+		if usage != "":
+			return [usage, usage.find("<") != -1]
+	return null
+
+
 func _add_command_rows(list):
 	var font = _small_font()
 	for entry in list:
+		if HIDDEN_COMMANDS.has(entry[0]):
+			continue
+		var args = _command_args(entry[0], entry[1])
 		var row = HBoxContainer.new()
 		row.add_constant_override("separation", 6)
 		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1754,11 +1824,16 @@ func _add_command_rows(list):
 		button.rect_min_size = Vector2(104, 0)
 		button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		button.clip_text = true
-		button.connect("pressed", self, "_on_help_command", [entry[0]])
+		button.set_meta("help_cmd", entry[0])
+		button.connect("pressed", self, "_on_help_command", [entry[0], args != null])
 		_glass_button(button)
+		if args != null and help_arg_for == entry[0]:
+			button.add_stylebox_override("normal", _glass(Color(0.3, 1.0, 1.0, 0.40), Color(0.8, 1.0, 1.0, 0.9), 8, 0))
+		if CONFIRM_COMMANDS.has(entry[0]):
+			button.add_stylebox_override("normal", _glass(Color(0.45, 0.08, 0.08, 0.45), Color(1.0, 0.5, 0.5, 0.55), 8, 0))
 		if font != null:
 			button.add_font_override("font", font)
-		_add_tooltip(button, "!" + entry[0], "Click to type it in chat")
+		_add_tooltip(button, "!" + entry[0], "Click to fill in what it needs" if args != null else "Click to send it to the server")
 		row.add_child(button)
 		var about = Label.new()
 		about.text = entry[1]
@@ -1771,24 +1846,109 @@ func _add_command_rows(list):
 			about.add_font_override("font", font)
 		row.add_child(about)
 
+		# the box for what comes after the command
+		if args != null and help_arg_for == entry[0]:
+			var arg_row = HBoxContainer.new()
+			arg_row.add_constant_override("separation", 6)
+			arg_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			help_list.add_child(arg_row)
+			var field = LineEdit.new()
+			field.placeholder_text = args[0]
+			field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			field.caret_blink = true
+			field.add_stylebox_override("normal", _glass(Color(0, 0, 0, 0.30), Color(0.55, 1.0, 1.0, 0.35), 8, 0))
+			field.add_stylebox_override("focus", _glass(Color(0, 0, 0, 0.40), Color(0.8, 1.0, 1.0, 0.9), 8, 0))
+			field.add_color_override("font_color", Color(1, 1, 1))
+			if font != null:
+				field.add_font_override("font", font)
+			field.connect("focus_entered", self, "_on_bet_focus")
+			field.connect("focus_exited", self, "_on_bet_unfocus")
+			field.connect("text_entered", self, "_on_help_arg_entered", [entry[0], args[1]])
+			arg_row.add_child(field)
+			help_arg_field = field
+			field.call_deferred("grab_focus")
+			var send = Button.new()
+			send.text = "Send"
+			send.focus_mode = Control.FOCUS_NONE
+			send.set_meta("help_send", entry[0])
+			send.connect("pressed", self, "_on_help_arg_send", [entry[0], args[1]])
+			_glass_button(send)
+			if font != null:
+				send.add_font_override("font", font)
+			arg_row.add_child(send)
 
-# opens the chat box with the command already typed, the same way pressing Enter opens it
-func _on_help_command(command):
-	var hud = _get_hud()
-	if hud == null or hud.get("menu") != 0:
+
+# shown on the buttons while the list is open: "Sure?" waiting for the second click, "Sent" for a moment after
+func _refresh_help_buttons(now):
+	for row in help_list.get_children():
+		for b in row.get_children():
+			if b.has_meta("help_cmd"):
+				var command = b.get_meta("help_cmd")
+				if help_armed.get(command, 0) > now and help_arg_for != command:
+					b.text = "Sure?"
+				elif help_sent.get(command, 0) > now:
+					b.text = "Sent"
+				else:
+					b.text = "!" + command
+			elif b.has_meta("help_send"):
+				b.text = "Sure?" if help_armed.get(b.get_meta("help_send"), 0) > now else "Send"
+				b.disabled = now < help_ready_at
+
+
+func _on_help_command(command, takes_args):
+	if takes_args:
+		# open (or close) its box, the command is sent from there
+		help_arg_for = "" if help_arg_for == command else command
+		help_armed.clear()
+		help_signature = ""
+		_rebuild_help()
 		return
-	var box = hud.get("chat")
-	if box == null:
+	if not _help_confirmed(command):
 		return
-	hud.using_chat = true
-	box.editable = true
-	box.selecting_enabled = true
-	box.focus_mode = Control.FOCUS_ALL
-	box.grab_focus()
-	box.placeholder_text = "Type to chat!"
-	box.text = "!" + command + " "
-	box.caret_position = box.text.length()
-	help_open = false
+	_help_send("!" + command, command)
+
+
+func _on_help_arg_entered(_text, command, required):
+	_on_help_arg_send(command, required)
+
+
+func _on_help_arg_send(command, required):
+	if help_arg_field == null or not is_instance_valid(help_arg_field):
+		return
+	var extra = help_arg_field.text.strip_edges()
+	if extra == "" and required:
+		help_arg_field.grab_focus()
+		return
+	if not _help_confirmed(command):
+		return
+	_help_send("!" + command + ("" if extra == "" else " " + extra), command)
+	help_arg_field.text = ""
+	help_arg_field.release_focus()
+	help_arg_for = ""
+	help_signature = ""
+	_rebuild_help()
+
+
+# true when the command can go now; the ones in CONFIRM_COMMANDS need a second click within 3 seconds
+func _help_confirmed(command):
+	if not CONFIRM_COMMANDS.has(command):
+		return true
+	var now = OS.get_ticks_msec()
+	if help_armed.get(command, 0) > now:
+		help_armed.erase(command)
+		return true
+	help_armed.clear()
+	help_armed[command] = now + ARM_MS
+	return false
+
+
+func _help_send(text, command):
+	var now = OS.get_ticks_msec()
+	if now < help_ready_at:
+		return
+	help_ready_at = now + HELP_DEBOUNCE_MS
+	help_sent[command] = now + 1500
+	_say(text)
 
 
 # --- typed commands and moving the panel ---

@@ -12,7 +12,7 @@ It adds a small panel at the top left with:
 - a bet box with a **Gamble** button,
 - a **Leaderboard** button,
 - a **Chalk** menu for your saved chalk drawings,
-- a **?** button listing every command you can use (click one to type it in chat).
+- a **?** button listing every command you can use, click one to send it (commands that need more open a small box).
 
 Drag the `::` handle to move the panel; it remembers where you put it. Commands you type starting with `!`
 go to the server only and don't show in chat. Server messages show in their own colour, and the chat
