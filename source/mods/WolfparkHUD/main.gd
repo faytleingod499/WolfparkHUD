@@ -68,6 +68,14 @@ var admin_box
 var admin_signature = ""
 var ban_armed = {} # steam id -> until when its Ban button is waiting for the second click
 
+# the help button: the server's commands (it lists them in "wp_cmds", and the admin ones in "wp_cmds_a")
+var help_button
+var help_box
+var help_open = false
+var help_commands = [] # [command, description]
+var help_admin_commands = []
+var help_signature = ""
+
 # the Chalk menu: your chalk saves, from the server's "Chalk Saves" plugin (it lists them in "wp_cs<SteamID>")
 var chalk_on = false
 var chalk_open = false
@@ -195,6 +203,16 @@ func _build_ui():
 	info.add_child(admin_button)
 	_add_tooltip(admin_button, "Admin", "Players on the server, with kick and ban")
 
+	help_button = Button.new()
+	help_button.text = "?"
+	help_button.visible = false
+	help_button.focus_mode = Control.FOCUS_NONE
+	help_button.rect_min_size = Vector2(24, 20)
+	help_button.connect("pressed", self, "_on_help_toggle")
+	_glass_button(help_button)
+	info.add_child(help_button)
+	_add_tooltip(help_button, "Commands", "Every command you can use here. Click one to type it in chat")
+
 	title_label = Label.new()
 	title_label.visible = false
 	title_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -288,6 +306,13 @@ func _build_ui():
 	admin_box.add_constant_override("separation", 3)
 	admin_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(admin_box)
+
+	# the command list, opening the panel downwards
+	help_box = VBoxContainer.new()
+	help_box.visible = false
+	help_box.add_constant_override("separation", 2)
+	help_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_child(help_box)
 
 	_build_chalk(column)
 
@@ -409,6 +434,7 @@ func _poll():
 		_rebuild_admin(net, lobby)
 
 	_poll_chalk(net, lobby)
+	_poll_help(lobby)
 
 	# the bet limits "min,max", empty when the server has no gambling
 	var gamble_text = str(steam.getLobbyData(lobby, "wp_gamble")).split(",")
@@ -686,6 +712,12 @@ func _refresh():
 	title_label.text = title_text
 	title_label.add_color_override("font_color", title_color)
 	admin_button.visible = is_admin
+	help_button.visible = not help_commands.empty() or (is_admin and not help_admin_commands.empty())
+	help_button.add_color_override("font_color", Color(0.55, 1.0, 1.0) if help_open else Color(1, 1, 1))
+	var help_show = help_open and help_button.visible
+	if help_box.visible != help_show:
+		help_box.visible = help_show
+		panel.rect_size = Vector2()
 	if admin_box.visible != (is_admin and admin_open):
 		admin_box.visible = is_admin and admin_open
 		panel.rect_size = Vector2() # shrink back to fit when it closes
@@ -1562,6 +1594,94 @@ func _rebuild_chalk_all():
 func _on_chalk_offer(take):
 	chalk_offer_answered = chalk_offer # hidden until the server says something new
 	_say("!chalkaccept" if take else "!chalkdecline")
+
+
+# --- the help button ---
+
+func _poll_help(lobby):
+	help_commands = _parse_commands(str(steam.getLobbyData(lobby, "wp_cmds")))
+	help_admin_commands = _parse_commands(str(steam.getLobbyData(lobby, "wp_cmds_a"))) if is_admin else []
+	if help_open:
+		_rebuild_help()
+
+
+# "command TAB description" lines
+func _parse_commands(text):
+	var list = []
+	for line in text.split("\n", false):
+		var bits = line.split("\t")
+		if bits.size() >= 1 and bits[0].strip_edges() != "":
+			list.append([bits[0].strip_edges(), bits[1].strip_edges() if bits.size() >= 2 else ""])
+	return list
+
+
+func _on_help_toggle():
+	help_open = not help_open
+	help_signature = ""
+	if help_open:
+		_rebuild_help()
+
+
+func _rebuild_help():
+	var signature = str([help_commands, help_admin_commands])
+	if signature == help_signature:
+		return
+	help_signature = signature
+	for child in help_box.get_children():
+		help_box.remove_child(child)
+		child.queue_free()
+	_add_command_rows(help_commands)
+	if not help_admin_commands.empty():
+		var header = Label.new()
+		header.text = "Admin"
+		header.add_color_override("font_color", Color(1.0, 0.85, 0.4))
+		help_box.add_child(header)
+		_add_command_rows(help_admin_commands)
+	panel.rect_size = Vector2()
+
+
+func _add_command_rows(list):
+	for entry in list:
+		var row = HBoxContainer.new()
+		row.add_constant_override("separation", 8)
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		help_box.add_child(row)
+		var name = Button.new()
+		name.text = "!" + entry[0]
+		name.flat = true
+		name.focus_mode = Control.FOCUS_NONE
+		name.align = Button.ALIGN_LEFT
+		name.rect_min_size = Vector2(110, 0)
+		name.add_color_override("font_color", Color(0.55, 1.0, 1.0))
+		name.add_color_override("font_color_hover", Color(1, 1, 1))
+		name.connect("pressed", self, "_on_help_command", [entry[0]])
+		row.add_child(name)
+		var about = Label.new()
+		about.text = entry[1]
+		about.autowrap = true
+		about.rect_min_size = Vector2(260, 0)
+		about.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		about.add_color_override("font_color", Color(1, 1, 1, 0.8))
+		row.add_child(about)
+
+
+# opens the chat box with the command already typed, the same way pressing Enter opens it
+func _on_help_command(command):
+	var hud = _get_hud()
+	if hud == null or hud.get("menu") != 0:
+		return
+	var box = hud.get("chat")
+	if box == null:
+		return
+	hud.using_chat = true
+	box.editable = true
+	box.selecting_enabled = true
+	box.focus_mode = Control.FOCUS_ALL
+	box.grab_focus()
+	box.placeholder_text = "Type to chat!"
+	box.text = "!" + command + " "
+	box.caret_position = box.text.length()
+	help_open = false
 
 
 # --- typed commands and moving the panel ---

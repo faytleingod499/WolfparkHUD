@@ -31,6 +31,12 @@ The ChalkSaves plugin publishes into the lobby data: `wp_chalk` = `saveAll,loadA
 the list open `wp_ca<SteamID>` = `id~name~count;...` and `wp_cb<SteamID>` = `id~name,name`. The Chalk button only
 shows when `wp_chalk` is set.
 
+## Help button
+A **?** button left of the heading (right of the admin shield for admins) opens the server's command list: each command
+and its description, plus an "Admin" part for admins. Clicking a command opens the chat with `!command ` typed in.
+The server (Cove core, `PublishCommandList`) writes `wp_cmds` (commands everyone can use) and `wp_cmds_a` (admin
+commands) into the lobby data as `command<TAB>description` lines; the button stays hidden while `wp_cmds` is empty.
+
 ## Install (players)
 1. Install GDWeave if you do not have it yet.
 2. Copy the `WolfparkHUD` folder from `package/` into `WEBFISHING/GDWeave/mods/`.
