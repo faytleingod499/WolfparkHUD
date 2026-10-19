@@ -71,6 +71,12 @@ var ban_armed = {} # steam id -> until when its Ban button is waiting for the se
 # the help button: asks the server for !help quietly and shows its answer here instead of in chat
 var help_button
 var help_box
+var help_note
+var help_scroll
+var help_list
+var small_font = null
+const HELP_WIDTH = 380
+const HELP_MAX_HEIGHT = 260
 var help_open = false
 var help_commands = [] # [command, description]
 var help_signature = ""
@@ -316,6 +322,29 @@ func _build_ui():
 	help_box.add_constant_override("separation", 2)
 	help_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(help_box)
+
+	help_note = Label.new()
+	help_note.add_color_override("font_color", Color(1, 1, 1, 0.55))
+	help_box.add_child(help_note)
+
+	# a fixed width and at most HELP_MAX_HEIGHT tall (less near the bottom of the screen), the rest scrolls
+	help_scroll = ScrollContainer.new()
+	help_scroll.scroll_horizontal_enabled = false
+	help_scroll.rect_min_size = Vector2(HELP_WIDTH, 0)
+	help_scroll.mouse_filter = Control.MOUSE_FILTER_STOP
+	help_box.add_child(help_scroll)
+	var bar = help_scroll.get_v_scrollbar()
+	bar.add_stylebox_override("scroll", _glass(Color(0, 0, 0, 0.25), Color(0.55, 1.0, 1.0, 0.25), 4, 0))
+	bar.add_stylebox_override("scroll_focus", _glass(Color(0, 0, 0, 0.25), Color(0.55, 1.0, 1.0, 0.25), 4, 0))
+	bar.add_stylebox_override("grabber", _glass(Color(0.3, 1.0, 1.0, 0.35), Color(0.8, 1.0, 1.0, 0.6), 4, 0))
+	bar.add_stylebox_override("grabber_highlight", _glass(Color(0.3, 1.0, 1.0, 0.55), Color(0.8, 1.0, 1.0, 0.9), 4, 0))
+	bar.add_stylebox_override("grabber_pressed", _glass(Color(0.3, 1.0, 1.0, 0.7), Color(0.8, 1.0, 1.0, 1.0), 4, 0))
+
+	help_list = VBoxContainer.new()
+	help_list.add_constant_override("separation", 3)
+	help_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	help_list.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	help_scroll.add_child(help_list)
 
 	_build_chalk(column)
 
@@ -729,6 +758,8 @@ func _refresh():
 		_rebuild_help()
 	help_button.add_color_override("font_color", Color(0.55, 1.0, 1.0) if help_open else Color(1, 1, 1))
 	var help_show = help_open and help_button.visible
+	if help_show:
+		_fit_help()
 	if help_box.visible != help_show:
 		help_box.visible = help_show
 		panel.rect_size = Vector2()
@@ -1674,40 +1705,70 @@ func _rebuild_help():
 	if signature == help_signature:
 		return
 	help_signature = signature
-	for child in help_box.get_children():
-		help_box.remove_child(child)
+	for child in help_list.get_children():
+		help_list.remove_child(child)
 		child.queue_free()
-	if help_commands.empty():
-		var note = Label.new()
-		note.text = "Asking the server..." if waiting else "The server did not answer !help"
-		note.add_color_override("font_color", Color(1, 1, 1, 0.55))
-		help_box.add_child(note)
+	help_note.visible = help_commands.empty()
+	help_note.text = "Asking the server..." if waiting else "The server did not answer !help"
+	help_scroll.visible = not help_commands.empty()
+	help_scroll.scroll_vertical = 0
 	_add_command_rows(help_commands)
-	panel.rect_size = Vector2()
+	_fit_help()
+
+
+# as tall as the list, but never more than HELP_MAX_HEIGHT or past the bottom of the screen
+func _fit_help():
+	var content = help_list.get_combined_minimum_size().y
+	var room = HELP_MAX_HEIGHT
+	if help_box.is_inside_tree() and help_box.visible:
+		room = min(room, get_viewport().get_visible_rect().size.y - help_box.rect_global_position.y - 16)
+	var height = floor(clamp(content, 0, max(60, room)))
+	if help_scroll.rect_min_size.y != height:
+		help_scroll.rect_min_size = Vector2(HELP_WIDTH, height)
+		help_scroll.rect_size = Vector2(HELP_WIDTH, height)
+		panel.rect_size = Vector2()
+
+
+# the game's font, smaller, for the list
+func _small_font():
+	if small_font != null:
+		return small_font
+	var base = help_list.get_font("font", "Label")
+	if base is DynamicFont:
+		small_font = base.duplicate()
+		small_font.size = int(max(10, round(base.size * 0.72)))
+		small_font.outline_size = int(round(base.outline_size * 0.72))
+	return small_font
 
 
 func _add_command_rows(list):
+	var font = _small_font()
 	for entry in list:
 		var row = HBoxContainer.new()
-		row.add_constant_override("separation", 8)
+		row.add_constant_override("separation", 6)
 		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		help_box.add_child(row)
-		var name = Button.new()
-		name.text = "!" + entry[0]
-		name.flat = true
-		name.focus_mode = Control.FOCUS_NONE
-		name.align = Button.ALIGN_LEFT
-		name.rect_min_size = Vector2(110, 0)
-		name.add_color_override("font_color", Color(0.55, 1.0, 1.0))
-		name.add_color_override("font_color_hover", Color(1, 1, 1))
-		name.connect("pressed", self, "_on_help_command", [entry[0]])
-		row.add_child(name)
+		help_list.add_child(row)
+		var button = Button.new()
+		button.text = "!" + entry[0]
+		button.focus_mode = Control.FOCUS_NONE
+		button.rect_min_size = Vector2(104, 0)
+		button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		button.clip_text = true
+		button.connect("pressed", self, "_on_help_command", [entry[0]])
+		_glass_button(button)
+		if font != null:
+			button.add_font_override("font", font)
+		_add_tooltip(button, "!" + entry[0], "Click to type it in chat")
+		row.add_child(button)
 		var about = Label.new()
 		about.text = entry[1]
 		about.autowrap = true
-		about.rect_min_size = Vector2(260, 0)
 		about.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		about.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		about.rect_min_size = Vector2(HELP_WIDTH - 104 - 6 - 14, 0) # room for the scrollbar
 		about.add_color_override("font_color", Color(1, 1, 1, 0.8))
+		if font != null:
+			about.add_font_override("font", font)
 		row.add_child(about)
 
 

@@ -36,7 +36,8 @@ A **?** button left of the heading (right of the admin shield for admins) opens 
 Opening it sends `!help` hidden; the server's answer ("Commands:" and one `command - description` line each, cut into
 ~480 character messages by the server) is taken out of the chat as it arrives, joined back up and shown as the list.
 Server messages that are not part of the answer, and every player message, stay in chat. Clicking a command opens
-the chat with `!command ` typed in. No server changes are needed.
+the chat with `!command ` typed in. The list uses the game font at about 70% size, is 380 px wide and at most 260 px
+tall (less near the bottom of the screen), and scrolls. No server changes are needed.
 
 ## Install (players)
 1. Install GDWeave if you do not have it yet.

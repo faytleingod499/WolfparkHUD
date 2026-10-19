@@ -1,3 +1,7 @@
+## 1.16.2
+- The command list is more compact: a smaller font, at most a few rows tall (less near the bottom of the screen) with
+  a scrollbar, and every command is a button you can click to type it in chat.
+
 ## 1.16.1
 - New **?** button left of the title (next to the admin shield for admins): a list of every command you can use on
   the server, with what it does. Click a command to have it typed in chat for you.
