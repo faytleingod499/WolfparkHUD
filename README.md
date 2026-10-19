@@ -16,6 +16,21 @@ except the host and yourself, with **Kick** and **Ban** (Ban needs a second clic
 `!kick <SteamID>` / `!ban <SteamID>` commands, hidden from chat. The Feed plugin tells the mod who is an admin through
 the lobby data key `wp_admins` (the Steam IDs of the admins online), so the Feed plugin must be updated too.
 
+## Chalk menu
+A **Chalk** button opens a menu for the server's `ChalkSaves` plugin: a canvas picker (follows the nearest canvas until
+you click one), a name box with **Save**, and your saves with **Load**, **Share** (pick an online player) and **Delete**.
+Load, Delete and saving over a save need a second click. A waiting share shows **Accept** / **Decline**. The buttons send
+the plugin's own `!chalksave`, `!chalkload`, `!chalkshare`, `!chalkdelete`, `!chalkaccept` and `!chalkdecline`, hidden from chat.
+
+Admins also get **All players**: every player with saves (online or not, the 120 most recently saved), each opening to
+their drawings with **Load** and **Delete** (the commands with the player's Steam ID added). The mod asks for this list
+with `!chalkowners` / `!chalkbrowse <SteamID>`, and the plugin only publishes it while an admin has it open.
+
+The ChalkSaves plugin publishes into the lobby data: `wp_chalk` = `saveAll,loadAll,maxSaves,loadCooldown`,
+`wp_cs<SteamID>` = that player's save names, `wp_co<SteamID>` = `from~name` for a waiting share, and for admins with
+the list open `wp_ca<SteamID>` = `id~name~count;...` and `wp_cb<SteamID>` = `id~name,name`. The Chalk button only
+shows when `wp_chalk` is set.
+
 ## Install (players)
 1. Install GDWeave if you do not have it yet.
 2. Copy the `WolfparkHUD` folder from `package/` into `WEBFISHING/GDWeave/mods/`.

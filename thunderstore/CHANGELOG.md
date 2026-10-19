@@ -1,3 +1,11 @@
+## 1.15.0
+- New **Chalk** button: a menu for your chalk saves. Pick a canvas (it starts on the nearest one), type a name and
+  **Save**, or **Load**, **Share** or **Delete** any of your saves. Loading, deleting and saving over a save ask for a
+  second click. When someone shares a save with you, **Accept** and **Decline** show up in the menu.
+- Admins get an **All players** list in the Chalk menu: everyone who has saves, online or not. Click a name to see
+  their drawings and load or delete them.
+- Needs the updated Chalk Saves plugin on the server.
+
 ## 1.14.3
 - New description: the player panel for Ether's Wolf Park.
 

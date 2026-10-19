@@ -14,6 +14,10 @@ const FEED_DEBOUNCE_MS = 1500
 const BUY_DEBOUNCE_MS = 1500
 const GAMBLE_DEBOUNCE_MS = 1500
 const POPUP_ID = "WOLFPARK"
+const CHALK_CANVASES = 4
+const CHALK_NAME_MAX = 32
+const CHALK_DEBOUNCE_MS = 1500
+const ARM_MS = 3000
 
 var steam = null
 var layer
@@ -63,6 +67,46 @@ var admin_button
 var admin_box
 var admin_signature = ""
 var ban_armed = {} # steam id -> until when its Ban button is waiting for the second click
+
+# the Chalk menu: your chalk saves, from the server's "Chalk Saves" plugin (it lists them in "wp_cs<SteamID>")
+var chalk_on = false
+var chalk_open = false
+var chalk_save_all = true
+var chalk_load_all = true
+var chalk_max = 20
+var chalk_cooldown = 30
+var chalk_names = []
+var chalk_offer = "" # "from~name" while somebody is sharing a save with you
+var chalk_offer_answered = ""
+var chalk_signature = ""
+var chalk_canvas = -1
+var chalk_nearest = -1
+var chalk_picked = false # a canvas was clicked, so stop following the nearest one
+var chalk_share_for = "" # the save whose player list is open
+var chalk_armed = {} # "load:name", "delete:name" or "save" -> until when it waits for the second click
+var chalk_load_ready_at = 0
+var chalk_ready_at = 0
+var canvas_nodes = []
+var chalk_button
+var chalk_box
+var chalk_canvas_buttons = []
+var chalk_near_label
+var chalk_name_field
+var chalk_save_button
+var chalk_save_row
+var chalk_offer_row
+var chalk_offer_label
+var chalk_count_label
+var chalk_list
+# admins: every player's saves ("wp_ca<SteamID>"), one player opened at a time ("wp_cb<SteamID>")
+var chalk_all_open = false
+var chalk_owners = [] # [steam id, name, count]
+var chalk_browse_id = ""
+var chalk_browse_names = []
+var chalk_all_signature = ""
+var chalk_all_opened_at = 0
+var chalk_all_button
+var chalk_all_list
 
 
 var poll_timer = 0.0
@@ -209,6 +253,15 @@ func _build_ui():
 	_glass_button(buy_button)
 	button_row.add_child(buy_button)
 
+	chalk_button = Button.new()
+	chalk_button.text = "Chalk"
+	chalk_button.visible = false
+	chalk_button.focus_mode = Control.FOCUS_NONE
+	chalk_button.connect("pressed", self, "_on_chalk_toggle")
+	_glass_button(chalk_button)
+	button_row.add_child(chalk_button)
+	_add_tooltip(chalk_button, "Chalk saves", "Save the chalk canvases and put them back later")
+
 	bet_field = LineEdit.new()
 	bet_field.placeholder_text = "coins"
 	bet_field.max_length = 6
@@ -235,6 +288,8 @@ func _build_ui():
 	admin_box.add_constant_override("separation", 3)
 	admin_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(admin_box)
+
+	_build_chalk(column)
 
 	# the list that opens under the panel with the Buy button
 	shop_panel = PanelContainer.new()
@@ -298,7 +353,7 @@ func _process(delta):
 	# the game reads its keys before this node runs, so let go of its controls only after that
 	if pending_unlock:
 		pending_unlock = false
-		if bet_field == null or not bet_field.has_focus():
+		if _typing_field() == null:
 			_unlock_hud()
 
 
@@ -352,6 +407,8 @@ func _poll():
 		admin_open = false
 	if admin_open:
 		_rebuild_admin(net, lobby)
+
+	_poll_chalk(net, lobby)
 
 	# the bet limits "min,max", empty when the server has no gambling
 	var gamble_text = str(steam.getLobbyData(lobby, "wp_gamble")).split(",")
@@ -638,6 +695,7 @@ func _refresh():
 				if button.has_meta("ban_id"):
 					var armed = ban_armed.get(button.get_meta("ban_id"), 0) > now
 					button.text = "Sure?" if armed else "Ban"
+	_refresh_chalk(now)
 	coin_label.text = "Coins: " + str(coins)
 	feeds_label.text = "Fed: " + str(feeds)
 	feed_button.disabled = now < feed_ready_at or now < feed_bar_end
@@ -912,12 +970,598 @@ func _on_bet_unfocus():
 	pending_unlock = true
 
 
+func _typing_field():
+	if bet_field != null and bet_field.has_focus():
+		return bet_field
+	if chalk_name_field != null and chalk_name_field.has_focus():
+		return chalk_name_field
+	return null
+
+
 func _unlock_hud():
 	if locked_hud != null and is_instance_valid(locked_hud):
 		var popups = locked_hud.get("popups")
 		if typeof(popups) == TYPE_ARRAY:
 			popups.erase(POPUP_ID)
 	locked_hud = null
+
+
+# --- the Chalk menu ---
+# Opens under the panel with the Chalk button. Pick a canvas (it follows the nearest one until you click one),
+# type a name and Save, or Load, Share or Delete one of your saves. Everything goes through the server's own
+# !chalk commands, so the server still decides and answers in chat.
+
+func _build_chalk(column):
+	chalk_box = VBoxContainer.new()
+	chalk_box.visible = false
+	chalk_box.add_constant_override("separation", 4)
+	chalk_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_child(chalk_box)
+
+	var canvas_row = HBoxContainer.new()
+	canvas_row.add_constant_override("separation", 4)
+	canvas_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chalk_box.add_child(canvas_row)
+	var label = Label.new()
+	label.text = "Canvas"
+	label.add_color_override("font_color", Color(0.75, 0.95, 1.0))
+	canvas_row.add_child(label)
+	chalk_canvas_buttons = []
+	for i in range(CHALK_CANVASES):
+		var b = Button.new()
+		b.text = str(i)
+		b.toggle_mode = true
+		b.focus_mode = Control.FOCUS_NONE
+		b.rect_min_size = Vector2(28, 0)
+		b.connect("pressed", self, "_on_chalk_canvas", [i])
+		_glass_button(b)
+		canvas_row.add_child(b)
+		chalk_canvas_buttons.append(b)
+	chalk_near_label = Label.new()
+	chalk_near_label.add_color_override("font_color", Color(1, 1, 1, 0.55))
+	canvas_row.add_child(chalk_near_label)
+
+	chalk_save_row = HBoxContainer.new()
+	chalk_save_row.add_constant_override("separation", 6)
+	chalk_save_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chalk_box.add_child(chalk_save_row)
+	chalk_name_field = LineEdit.new()
+	chalk_name_field.placeholder_text = "save name"
+	chalk_name_field.max_length = CHALK_NAME_MAX
+	chalk_name_field.rect_min_size = Vector2(130, 0)
+	chalk_name_field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	chalk_name_field.caret_blink = true
+	chalk_name_field.add_stylebox_override("normal", _glass(Color(0, 0, 0, 0.30), Color(0.55, 1.0, 1.0, 0.35), 8, 0))
+	chalk_name_field.add_stylebox_override("focus", _glass(Color(0, 0, 0, 0.40), Color(0.8, 1.0, 1.0, 0.9), 8, 0))
+	chalk_name_field.add_color_override("font_color", Color(1, 1, 1))
+	chalk_name_field.connect("text_changed", self, "_on_chalk_name_changed")
+	chalk_name_field.connect("focus_entered", self, "_on_bet_focus")
+	chalk_name_field.connect("focus_exited", self, "_on_bet_unfocus")
+	chalk_name_field.connect("text_entered", self, "_on_chalk_name_entered")
+	chalk_save_row.add_child(chalk_name_field)
+	chalk_save_button = Button.new()
+	chalk_save_button.text = "Save"
+	chalk_save_button.focus_mode = Control.FOCUS_NONE
+	chalk_save_button.rect_min_size = Vector2(64, 0)
+	chalk_save_button.connect("pressed", self, "_on_chalk_save")
+	_glass_button(chalk_save_button)
+	chalk_save_row.add_child(chalk_save_button)
+
+	# somebody is sharing a save with you
+	chalk_offer_row = HBoxContainer.new()
+	chalk_offer_row.visible = false
+	chalk_offer_row.add_constant_override("separation", 6)
+	chalk_offer_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chalk_box.add_child(chalk_offer_row)
+	chalk_offer_label = Label.new()
+	chalk_offer_label.clip_text = true
+	chalk_offer_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	chalk_offer_label.rect_min_size = Vector2(120, 0)
+	chalk_offer_label.add_color_override("font_color", Color(1.0, 0.85, 0.4))
+	chalk_offer_row.add_child(chalk_offer_label)
+	var accept = Button.new()
+	accept.text = "Accept"
+	accept.focus_mode = Control.FOCUS_NONE
+	accept.connect("pressed", self, "_on_chalk_offer", [true])
+	_glass_button(accept)
+	chalk_offer_row.add_child(accept)
+	var decline = Button.new()
+	decline.text = "Decline"
+	decline.focus_mode = Control.FOCUS_NONE
+	decline.connect("pressed", self, "_on_chalk_offer", [false])
+	_glass_button(decline)
+	chalk_offer_row.add_child(decline)
+
+	chalk_count_label = Label.new()
+	chalk_count_label.add_color_override("font_color", Color(1, 1, 1, 0.55))
+	chalk_box.add_child(chalk_count_label)
+
+	chalk_list = VBoxContainer.new()
+	chalk_list.add_constant_override("separation", 3)
+	chalk_list.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chalk_box.add_child(chalk_list)
+
+	# admins only: everybody's saves, each player opens to show their drawings
+	chalk_all_button = Button.new()
+	chalk_all_button.visible = false
+	chalk_all_button.focus_mode = Control.FOCUS_NONE
+	chalk_all_button.align = Button.ALIGN_LEFT
+	chalk_all_button.connect("pressed", self, "_on_chalk_all_toggle")
+	_glass_button(chalk_all_button)
+	chalk_box.add_child(chalk_all_button)
+	_add_tooltip(chalk_all_button, "All players", "Every player's chalk saves, to look at and load")
+
+	chalk_all_list = VBoxContainer.new()
+	chalk_all_list.visible = false
+	chalk_all_list.add_constant_override("separation", 3)
+	chalk_all_list.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chalk_box.add_child(chalk_all_list)
+
+
+func _poll_chalk(net, lobby):
+	var info = str(steam.getLobbyData(lobby, "wp_chalk")).split(",")
+	chalk_on = info.size() >= 4
+	if not chalk_on:
+		chalk_open = false
+		return
+	chalk_save_all = info[0] == "1"
+	chalk_load_all = info[1] == "1"
+	chalk_max = int(info[2])
+	chalk_cooldown = int(info[3])
+
+	var me = str(net.STEAM_ID)
+	chalk_names = Array(str(steam.getLobbyData(lobby, "wp_cs" + me)).split(",", false))
+	chalk_offer = str(steam.getLobbyData(lobby, "wp_co" + me))
+	if chalk_offer != chalk_offer_answered:
+		chalk_offer_answered = ""
+
+	if not chalk_names.has(chalk_share_for):
+		chalk_share_for = ""
+	_find_nearest_canvas()
+
+	if chalk_all_open and not (is_admin and chalk_open):
+		_close_chalk_all()
+	if chalk_all_open:
+		chalk_owners = []
+		for entry in str(steam.getLobbyData(lobby, "wp_ca" + me)).split(";", false):
+			var bits = entry.split("~")
+			if bits.size() >= 3:
+				chalk_owners.append([bits[0], bits[1], int(bits[2])])
+		chalk_browse_names = []
+		var browse = str(steam.getLobbyData(lobby, "wp_cb" + me)).split("~")
+		if browse.size() >= 2 and browse[0] == chalk_browse_id:
+			chalk_browse_names = Array(browse[1].split(",", false))
+
+	if chalk_open:
+		_rebuild_chalk(net, lobby)
+		_rebuild_chalk_all()
+
+
+# every chalk canvas in the world, found once (and again after the map changes)
+func _find_canvases():
+	for node in canvas_nodes:
+		if not is_instance_valid(node):
+			canvas_nodes = []
+			break
+	if not canvas_nodes.empty():
+		return
+	var scene = get_tree().current_scene
+	if scene == null:
+		return
+	var zones = scene.find_node("chalk_zones", true, false)
+	if zones == null:
+		return
+	for child in zones.get_children():
+		if child is Spatial and child.get("canvas_id") != null:
+			canvas_nodes.append(child)
+
+
+func _find_nearest_canvas():
+	chalk_nearest = -1
+	var players = get_tree().get_nodes_in_group("controlled_player")
+	if players.empty():
+		return
+	_find_canvases()
+	var me = players[0].global_transform.origin
+	var best = INF
+	for node in canvas_nodes:
+		var there = node.global_transform.origin
+		var d = Vector2(there.x - me.x, there.z - me.z).length()
+		if d < best:
+			best = d
+			chalk_nearest = int(node.get("canvas_id"))
+	if not chalk_picked and chalk_nearest >= 0:
+		chalk_canvas = chalk_nearest
+
+
+# the list of saves, only rebuilt when something in it changed
+func _rebuild_chalk(net, lobby):
+	var people = []
+	if chalk_share_for != "":
+		var host = str(steam.getLobbyOwner(lobby))
+		for member in net.LOBBY_MEMBERS:
+			var id = str(member.get("steam_id", ""))
+			if id == "" or id == host or id == str(net.STEAM_ID):
+				continue
+			people.append([str(member.get("steam_name", id)), id])
+		people.sort_custom(self, "_by_name")
+	var signature = str([chalk_names, chalk_share_for, people, _may_load()])
+	if signature == chalk_signature:
+		return
+	chalk_signature = signature
+
+	for child in chalk_list.get_children():
+		chalk_list.remove_child(child)
+		child.queue_free()
+
+	if chalk_names.empty():
+		var none = Label.new()
+		none.text = "No saves yet"
+		none.add_color_override("font_color", Color(1, 1, 1, 0.55))
+		chalk_list.add_child(none)
+
+	for save in chalk_names:
+		var row = HBoxContainer.new()
+		row.add_constant_override("separation", 6)
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		chalk_list.add_child(row)
+
+		# clicking the name puts it in the name box, to save over it
+		var name = Button.new()
+		name.text = save
+		name.flat = true
+		name.clip_text = true
+		name.align = Button.ALIGN_LEFT
+		name.focus_mode = Control.FOCUS_NONE
+		name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name.rect_min_size = Vector2(110, 0)
+		name.add_color_override("font_color", Color(1, 1, 1))
+		name.add_color_override("font_color_hover", Color(0.55, 1.0, 1.0))
+		name.connect("pressed", self, "_on_chalk_pick_name", [save])
+		row.add_child(name)
+
+		if _may_load():
+			var load_btn = Button.new()
+			load_btn.focus_mode = Control.FOCUS_NONE
+			load_btn.rect_min_size = Vector2(52, 0)
+			load_btn.set_meta("chalk_load", save)
+			load_btn.set_meta("chalk_owner", "")
+			load_btn.connect("pressed", self, "_on_chalk_load", [save, ""])
+			_glass_button(load_btn)
+			row.add_child(load_btn)
+
+		var share = Button.new()
+		share.text = "Share"
+		share.focus_mode = Control.FOCUS_NONE
+		share.connect("pressed", self, "_on_chalk_share", [save])
+		_glass_button(share)
+		if chalk_share_for == save:
+			share.add_stylebox_override("normal", _glass(Color(0.3, 1.0, 1.0, 0.40), Color(0.8, 1.0, 1.0, 0.9), 8, 0))
+		row.add_child(share)
+
+		var delete = Button.new()
+		delete.focus_mode = Control.FOCUS_NONE
+		delete.rect_min_size = Vector2(56, 0)
+		delete.set_meta("chalk_delete", save)
+		delete.set_meta("chalk_owner", "")
+		delete.connect("pressed", self, "_on_chalk_delete", [save, ""])
+		_glass_button(delete)
+		delete.add_stylebox_override("normal", _glass(Color(0.45, 0.08, 0.08, 0.45), Color(1.0, 0.5, 0.5, 0.55), 8, 0))
+		row.add_child(delete)
+
+		# who to share it with
+		if chalk_share_for == save:
+			var grid = GridContainer.new()
+			grid.columns = 2
+			grid.add_constant_override("hseparation", 4)
+			grid.add_constant_override("vseparation", 3)
+			grid.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			chalk_list.add_child(grid)
+			if people.empty():
+				var nobody = Label.new()
+				nobody.text = "Nobody else is here"
+				nobody.add_color_override("font_color", Color(1, 1, 1, 0.55))
+				grid.add_child(nobody)
+			for person in people:
+				var give = Button.new()
+				give.text = person[0]
+				give.clip_text = true
+				give.rect_min_size = Vector2(110, 0)
+				give.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				give.focus_mode = Control.FOCUS_NONE
+				give.connect("pressed", self, "_on_chalk_share_to", [save, person[1]])
+				_glass_button(give)
+				grid.add_child(give)
+
+	panel.rect_size = Vector2()
+
+
+func _may_save():
+	return chalk_save_all or is_admin
+
+
+func _may_load():
+	return chalk_load_all or is_admin
+
+
+func _armed(key, now):
+	return chalk_armed.get(key, 0) > now
+
+
+# a click that needs a second one within a few seconds; true when this was the second one
+func _arm(key):
+	var now = OS.get_ticks_msec()
+	if _armed(key, now):
+		chalk_armed.erase(key)
+		return true
+	chalk_armed.clear()
+	chalk_armed[key] = now + ARM_MS
+	return false
+
+
+func _refresh_chalk(now):
+	chalk_button.visible = chalk_on
+	var show = chalk_on and chalk_open
+	if chalk_box.visible != show:
+		chalk_box.visible = show
+		if not show and chalk_name_field.has_focus():
+			chalk_name_field.release_focus()
+		panel.rect_size = Vector2()
+	chalk_button.add_color_override("font_color", Color(0.55, 1.0, 1.0) if chalk_open else Color(1, 1, 1))
+	if not show:
+		return
+
+	for i in range(chalk_canvas_buttons.size()):
+		chalk_canvas_buttons[i].pressed = i == chalk_canvas
+	chalk_near_label.text = "nearest" if chalk_canvas >= 0 and chalk_canvas == chalk_nearest else ""
+
+	var typed = chalk_name_field.text
+	var exists = chalk_names.has(typed)
+	chalk_save_row.visible = _may_save()
+	if _armed("save", now):
+		chalk_save_button.text = "Sure?"
+	else:
+		chalk_save_button.text = "Replace" if exists else "Save"
+	chalk_save_button.disabled = typed == "" or chalk_canvas < 0 or now < chalk_ready_at \
+		or (not exists and chalk_names.size() >= chalk_max)
+
+	var offer = chalk_offer.split("~")
+	chalk_offer_row.visible = offer.size() >= 2 and chalk_offer != chalk_offer_answered
+	if chalk_offer_row.visible:
+		chalk_offer_label.text = offer[0] + " shares \"" + offer[1] + "\""
+
+	chalk_count_label.text = str(chalk_names.size()) + " of " + str(chalk_max) + " saves"
+
+	chalk_all_button.visible = is_admin
+	chalk_all_button.text = ("-  " if chalk_all_open else "+  ") + "All players"
+	chalk_all_list.visible = is_admin and chalk_all_open
+
+	var wait = int(ceil((chalk_load_ready_at - now) / 1000.0))
+	for row in chalk_list.get_children() + chalk_all_list.get_children():
+		for b in row.get_children():
+			if b.has_meta("chalk_load"):
+				var save = b.get_meta("chalk_load")
+				if _armed("load:" + b.get_meta("chalk_owner") + ":" + save, now):
+					b.text = "Sure?"
+				elif wait > 0:
+					b.text = str(wait) + "s"
+				else:
+					b.text = "Load"
+				b.disabled = chalk_canvas < 0 or now < chalk_load_ready_at or now < chalk_ready_at
+			elif b.has_meta("chalk_delete"):
+				b.text = "Sure?" if _armed("delete:" + b.get_meta("chalk_owner") + ":" + b.get_meta("chalk_delete"), now) else "Delete"
+				b.disabled = now < chalk_ready_at
+
+
+func _on_chalk_toggle():
+	chalk_open = not chalk_open
+	if not chalk_open and chalk_all_open:
+		_close_chalk_all()
+	chalk_signature = ""
+	chalk_share_for = ""
+	chalk_armed.clear()
+	chalk_picked = false # opening again follows the nearest canvas
+	if chalk_open:
+		var net = get_node_or_null("/root/Network")
+		if net != null and steam != null:
+			_poll_chalk(net, net.STEAM_LOBBY_ID)
+
+
+func _on_chalk_canvas(i):
+	chalk_canvas = i
+	chalk_picked = true
+	chalk_armed.clear()
+
+
+# names become file names on the server: letters, numbers, - and _ only
+func _on_chalk_name_changed(text):
+	var clean = ""
+	for c in text.to_lower():
+		if (c >= "a" and c <= "z") or (c >= "0" and c <= "9") or c == "-" or c == "_":
+			if clean == "" and (c == "-" or c == "_"):
+				continue
+			clean += c
+	if clean != text:
+		var caret = chalk_name_field.caret_position
+		chalk_name_field.text = clean
+		chalk_name_field.caret_position = min(caret, clean.length())
+	chalk_armed.erase("save")
+
+
+func _on_chalk_name_entered(_text):
+	_on_chalk_save()
+	chalk_name_field.release_focus()
+
+
+func _on_chalk_pick_name(save):
+	chalk_name_field.text = save
+	chalk_armed.clear()
+
+
+func _on_chalk_save():
+	var name = chalk_name_field.text
+	if name == "" or chalk_canvas < 0 or OS.get_ticks_msec() < chalk_ready_at:
+		return
+	# saving over one of your saves needs a second click
+	if chalk_names.has(name) and not _arm("save"):
+		return
+	chalk_armed.clear()
+	chalk_ready_at = OS.get_ticks_msec() + CHALK_DEBOUNCE_MS
+	_say("!chalksave " + name + " " + str(chalk_canvas))
+
+
+# loading wipes what is drawn on that canvas now, so it needs a second click
+# owner is a Steam ID for an admin loading somebody else's save, empty for your own
+func _on_chalk_load(save, owner):
+	if chalk_canvas < 0 or not _arm("load:" + owner + ":" + save):
+		return
+	var now = OS.get_ticks_msec()
+	chalk_ready_at = now + CHALK_DEBOUNCE_MS
+	chalk_load_ready_at = now + (CHALK_DEBOUNCE_MS if is_admin else max(chalk_cooldown * 1000, CHALK_DEBOUNCE_MS))
+	_say("!chalkload " + save + " " + str(chalk_canvas) + ("" if owner == "" else " " + owner))
+
+
+func _on_chalk_delete(save, owner):
+	if not _arm("delete:" + owner + ":" + save):
+		return
+	chalk_ready_at = OS.get_ticks_msec() + CHALK_DEBOUNCE_MS
+	_say("!chalkdelete " + save + ("" if owner == "" else " " + owner))
+
+
+func _on_chalk_share(save):
+	chalk_armed.clear()
+	chalk_share_for = "" if chalk_share_for == save else save
+	chalk_signature = ""
+	var net = get_node_or_null("/root/Network")
+	if net != null and steam != null:
+		_rebuild_chalk(net, net.STEAM_LOBBY_ID)
+
+
+func _on_chalk_share_to(save, id):
+	chalk_share_for = ""
+	chalk_signature = ""
+	_say("!chalkshare " + save + " " + str(id))
+	var net = get_node_or_null("/root/Network")
+	if net != null and steam != null:
+		_rebuild_chalk(net, net.STEAM_LOBBY_ID)
+
+
+func _on_chalk_all_toggle():
+	if chalk_all_open:
+		_close_chalk_all()
+	else:
+		chalk_all_open = true
+		chalk_all_signature = ""
+		chalk_all_opened_at = OS.get_ticks_msec()
+		_say("!chalkowners")
+
+
+func _close_chalk_all():
+	chalk_all_open = false
+	chalk_browse_id = ""
+	chalk_owners = []
+	chalk_browse_names = []
+	chalk_all_signature = ""
+	for child in chalk_all_list.get_children():
+		chalk_all_list.remove_child(child)
+		child.queue_free()
+	panel.rect_size = Vector2()
+	if is_admin:
+		_say("!chalkowners off")
+
+
+func _on_chalk_owner(id):
+	chalk_armed.clear()
+	if chalk_browse_id == id:
+		chalk_browse_id = ""
+		_say("!chalkbrowse")
+	else:
+		chalk_browse_id = id
+		_say("!chalkbrowse " + id)
+	chalk_browse_names = []
+	_rebuild_chalk_all()
+
+
+func _rebuild_chalk_all():
+	if not chalk_all_open:
+		return
+	var waiting = chalk_owners.empty() and OS.get_ticks_msec() - chalk_all_opened_at < 4000
+	var signature = str([chalk_owners, chalk_browse_id, chalk_browse_names, _may_load(), waiting])
+	if signature == chalk_all_signature:
+		return
+	chalk_all_signature = signature
+
+	for child in chalk_all_list.get_children():
+		chalk_all_list.remove_child(child)
+		child.queue_free()
+
+	if chalk_owners.empty():
+		var none = Label.new()
+		none.text = "Loading..." if waiting else "Nobody has saves yet"
+		none.add_color_override("font_color", Color(1, 1, 1, 0.55))
+		chalk_all_list.add_child(none)
+
+	for entry in chalk_owners:
+		var row = HBoxContainer.new()
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		chalk_all_list.add_child(row)
+		var open = entry[0] == chalk_browse_id
+		var who = Button.new()
+		who.text = ("-  " if open else "+  ") + entry[1] + "  (" + str(entry[2]) + ")"
+		who.flat = true
+		who.clip_text = true
+		who.align = Button.ALIGN_LEFT
+		who.focus_mode = Control.FOCUS_NONE
+		who.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		who.rect_min_size = Vector2(200, 0)
+		who.add_color_override("font_color", Color(0.55, 1.0, 1.0) if open else Color(0.75, 0.95, 1.0))
+		who.add_color_override("font_color_hover", Color(1, 1, 1))
+		who.connect("pressed", self, "_on_chalk_owner", [entry[0]])
+		row.add_child(who)
+		if not open:
+			continue
+
+		if chalk_browse_names.empty():
+			var wait = Label.new()
+			wait.text = "      ..."
+			wait.add_color_override("font_color", Color(1, 1, 1, 0.55))
+			chalk_all_list.add_child(wait)
+		for save in chalk_browse_names:
+			var line = HBoxContainer.new()
+			line.add_constant_override("separation", 6)
+			line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			chalk_all_list.add_child(line)
+			var name = Label.new()
+			name.text = "      " + save
+			name.clip_text = true
+			name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			name.rect_min_size = Vector2(110, 0)
+			name.add_color_override("font_color", Color(1, 1, 1))
+			line.add_child(name)
+			var load_btn = Button.new()
+			load_btn.focus_mode = Control.FOCUS_NONE
+			load_btn.rect_min_size = Vector2(52, 0)
+			load_btn.set_meta("chalk_load", save)
+			load_btn.set_meta("chalk_owner", entry[0])
+			load_btn.connect("pressed", self, "_on_chalk_load", [save, entry[0]])
+			_glass_button(load_btn)
+			line.add_child(load_btn)
+			var delete = Button.new()
+			delete.focus_mode = Control.FOCUS_NONE
+			delete.rect_min_size = Vector2(56, 0)
+			delete.set_meta("chalk_delete", save)
+			delete.set_meta("chalk_owner", entry[0])
+			delete.connect("pressed", self, "_on_chalk_delete", [save, entry[0]])
+			_glass_button(delete)
+			delete.add_stylebox_override("normal", _glass(Color(0.45, 0.08, 0.08, 0.45), Color(1.0, 0.5, 0.5, 0.55), 8, 0))
+			line.add_child(delete)
+
+	panel.rect_size = Vector2()
+
+
+func _on_chalk_offer(take):
+	chalk_offer_answered = chalk_offer # hidden until the server says something new
+	_say("!chalkaccept" if take else "!chalkdecline")
 
 
 # --- typed commands and moving the panel ---
@@ -929,15 +1573,16 @@ func _input(event):
 		_drag(event)
 		return
 
-	# Escape or a click somewhere else lets go of the bet box
-	if bet_field != null and bet_field.has_focus():
+	# Escape or a click somewhere else lets go of the bet box (or the chalk name box)
+	var field = _typing_field()
+	if field != null:
 		if event is InputEventKey and event.pressed and event.scancode == KEY_ESCAPE:
-			bet_field.release_focus()
+			field.release_focus()
 			get_tree().set_input_as_handled()
 			return
 		if event is InputEventMouseButton and event.pressed:
-			if not bet_field.get_global_rect().has_point(event.position):
-				bet_field.release_focus()
+			if not field.get_global_rect().has_point(event.position):
+				field.release_focus()
 		return
 
 	if not active or not event.is_action_pressed("chat_enter"):
