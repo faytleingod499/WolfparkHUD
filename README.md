@@ -41,3 +41,14 @@ with Godot 3.5 from this folder.
 The mod adds the titles **Lonely** and **Battery Charger** to the game's title list (Cosmetics, Misc tab) while you are on the server. It is taken off again when you leave the server or close the game.
 
 If **LureRefreshed** is installed the title is registered through Lure (as `WolfparkHUD.lonely`), which is what Lure needs to draw it, and players without the mod just get a blank title from Lure. Without Lure it is added to the game directly, and players without this mod see the wearer as a default-looking character.
+
+## Building
+
+The mod is plain GDScript (plus models and sounds) packed into `package/WolfparkHUD/WolfparkHUD.pck` with the Godot 3.5 engine's own packer:
+
+```
+godot --no-window -s pack.gd
+./build.sh
+```
+
+`pack.gd` packs `source/mods/WolfparkHUD/` into the pck. `build.sh` then makes `out/WolfparkHUD-mod.zip` (the folder for `GDWeave/mods`) and the Thunderstore upload zip from `thunderstore/`. Requires [GDWeave](https://thunderstore.io/c/webfishing/p/NotNet/GDWeave/).
