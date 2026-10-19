@@ -2,7 +2,7 @@ extends Node
 
 # Wolfpark HUD
 # A small panel with your coin balance, a Feed Wolves button, a Buy menu and a gamble box.
-# It only appears on servers that announce it (the Cove "Feed" plugin does this through the
+# It only appears on servers that announce it (the server's "Feed" plugin does this through the
 # lobby data), on every other server this mod does nothing at all.
 # On such a server, anything you type that starts with ! goes only to the server and is not shown in chat.
 
@@ -673,7 +673,7 @@ func _refresh():
 var shop_open = false
 
 
-# Sends a message that only the server gets, in the same shape as a normal chat message so Cove reads it
+# Sends a message that only the server gets, in the same shape as a normal chat message so the server reads it
 # as the command it is. Nothing is shown in your chat and nobody else receives it.
 func _say(text):
 	if text.strip_edges().to_lower() == "!feed":

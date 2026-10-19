@@ -1,3 +1,6 @@
+## 1.14.3
+- New description: the player panel for Ether's Wolf Park.
+
 ## 1.14.2
 - The mod has its own GitHub repository now: https://github.com/faytleingod499/WolfparkHUD
 - Released under the MIT License: you're free to copy, change and share your own versions.

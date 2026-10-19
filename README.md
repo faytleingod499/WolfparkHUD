@@ -7,14 +7,14 @@ your wolf coin balance, a **Feed Wolves** button, a **Buy** menu (everything the
 
 On such a server anything you type that starts with `!` is sent to the server only and does not show in chat, and the buttons do the same. The heading (default "Ether's Wolf Park", cyan) comes from `hudTitle` / `hudTitleColor` in `feed.txt`. Server messages (chat lines with no player name) are shown in sky blue; change or disable it with `hudChatColor` in `feed.txt`. A small clipboard icon next to the heading (tooltip "Leaderboard") runs `!wolves`. The chat window also starts expanded (you can still shrink it).
 
-It only appears on servers that run the Cove `Feed` plugin from this repository (the plugin marks the server through
+It only appears on servers that run the `Feed` server plugin (the plugin marks the server through
 the Steam lobby data). On every other server the mod stays hidden and does nothing.
 
 ## Admin panel
 Admins (listed in the server's `admins.cfg`) get a shield button left of the heading. It opens a list of all players
 except the host and yourself, with **Kick** and **Ban** (Ban needs a second click). The buttons send the server's own
 `!kick <SteamID>` / `!ban <SteamID>` commands, hidden from chat. The Feed plugin tells the mod who is an admin through
-the lobby data key `wp_admins` (the Steam IDs of the admins online), so `Cove.Feed.dll` must be updated too.
+the lobby data key `wp_admins` (the Steam IDs of the admins online), so the Feed plugin must be updated too.
 
 ## Install (players)
 1. Install GDWeave if you do not have it yet.
@@ -24,7 +24,7 @@ the lobby data key `wp_admins` (the Steam IDs of the admins online), so `Cove.Fe
    position is remembered.
 
 ## Server
-Replace `Cove.Feed.dll` in `plugins/` with the new build and run `!reloadplugins feed` (or restart). Nothing to
+Replace the Feed plugin's DLL in `plugins/` with the new build and run `!reloadplugins feed` (or restart). Nothing to
 configure; what the Buy menu lists comes from `shop.txt` (created next to `feed.txt`), the heading and gambling odds from `feed.txt`.
 
 ## How it works

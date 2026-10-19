@@ -1,6 +1,6 @@
 # Wolfpark HUD
 
-The player panel for **Ether's Wolf Park** and other servers running the Cove **Feed** plugin.
+The player panel for **Ether's Wolf Park**.
 
 *This mod was created with the assistance of AI.*
 
@@ -28,5 +28,5 @@ server still checks that you're an admin.
 
 ## Other servers
 
-The panel only appears on servers that run the Feed plugin. Everywhere else the mod stays hidden and does
+The panel only appears on servers that support it, like Ether's Wolf Park. Everywhere else the mod stays hidden and does
 nothing, so it's safe to leave installed.
