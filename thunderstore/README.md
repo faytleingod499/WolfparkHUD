@@ -6,7 +6,7 @@ The player panel for **Ether's Wolf Park**.
 
 It adds a small panel at the top left with:
 
-- your **wolf coin** balance,
+- your **wolf coin** balance (on Wolf Park every fish you catch earns coins by quality: Normal 1 up to Alpha 6),
 - a **Feed Wolves** button,
 - a **Buy** menu listing everything the server sells,
 - a bet box with a **Gamble** button,

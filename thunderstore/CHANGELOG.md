@@ -1,3 +1,8 @@
+## 1.16.4
+- Catch coins: every fish you catch earns wolf coins on Wolf Park, by quality: Normal 1, Shining 2, Glistening 3,
+  Opulent 4, Radiant 5, Alpha 6. The HUD tells the server what quality you caught; the server checks that it saw you
+  land that fish and pays each catch once. Needs a server with catch coins turned on.
+
 ## 1.16.3
 - The command list is in alphabetical order.
 - Clicking a command sends it to the server right away, no typing. Commands that need more (a player, an amount, a

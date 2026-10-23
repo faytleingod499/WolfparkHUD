@@ -104,7 +104,7 @@ const ARG_HINTS = {
 # these change things for everyone, so they need a second click
 const CONFIRM_COMMANDS = ["exit", "shutdown", "clearchalk", "clearoutside", "reloadplugins", "ban", "say"]
 # not shown: !help is what fills the list, the other two are used by the Chalk menu
-const HIDDEN_COMMANDS = ["help", "chalkowners", "chalkbrowse"]
+const HIDDEN_COMMANDS = ["help", "chalkowners", "chalkbrowse", "catchcoins"]
 var help_open = false
 var help_commands = [] # [command, description]
 var help_signature = ""
@@ -437,6 +437,8 @@ func _process(delta):
 	if poll_timer >= 0.5:
 		poll_timer = 0.0
 		_poll()
+		if active:
+			_watch_catch()
 		_sync_title()
 		if active:
 			_expand_chat()
@@ -449,6 +451,47 @@ func _process(delta):
 
 
 # --- reading what the server tells us ---
+
+# --- coins for catches ---
+# When I land a fish my game shares it (id and size) with everyone, the server too, but not its quality. So the HUD finds
+# the fish that just went into my inventory and tells the server its quality; the server only pays for a catch it saw.
+
+var catch_seen = ""      # the catch my game is showing, "id|size"
+var catch_pending = null # [id, size, since] waiting for the fish to reach the inventory
+
+
+func _watch_catch():
+	var players = get_tree().get_nodes_in_group("controlled_player")
+	if players.empty():
+		return
+	var anim = players[0].get("animation_data")
+	var item = anim.get("caught_item", {}) if typeof(anim) == TYPE_DICTIONARY else {}
+	var seen = ""
+	if typeof(item) == TYPE_DICTIONARY and item.has("id"):
+		seen = str(item["id"]) + "|" + str(item.get("size", ""))
+	if seen != catch_seen:
+		catch_seen = seen
+		if seen != "":
+			catch_pending = [str(item["id"]), item.get("size", 0.0), OS.get_ticks_msec()]
+	if catch_pending == null:
+		return
+	if OS.get_ticks_msec() - catch_pending[2] > 10000:
+		catch_pending = null
+		return
+	var data = get_node_or_null("/root/PlayerData")
+	if data == null or typeof(data.get("inventory")) != TYPE_ARRAY:
+		return
+	# the newest matching fish in the inventory (it arrives a moment after the catch is shown)
+	var inv = data.inventory
+	for i in range(inv.size() - 1, max(-1, inv.size() - 41), -1):
+		var entry = inv[i]
+		if typeof(entry) == TYPE_DICTIONARY and str(entry.get("id")) == catch_pending[0] \
+				and abs(float(entry.get("size", 0.0)) - float(catch_pending[1])) < 0.001:
+			var quality = int(clamp(int(entry.get("quality", 0)), 0, 5))
+			_send_hidden("!catchcoins " + str(quality) + " " + catch_pending[0])
+			catch_pending = null
+			return
+
 
 func _poll():
 	var was_active = active
