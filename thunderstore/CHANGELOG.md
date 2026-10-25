@@ -1,3 +1,6 @@
+## 1.16.5
+- Admin panel: the list now starts with "Players online: N", the total number of players on the server (you included).
+
 ## 1.16.4
 - Catch coins: every fish you catch earns wolf coins on Wolf Park, by quality: Normal 1, Shining 2, Glistening 3,
   Opulent 4, Radiant 5, Alpha 6. The HUD tells the server what quality you caught; the server checks that it saw you

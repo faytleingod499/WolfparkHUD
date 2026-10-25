@@ -991,6 +991,11 @@ func _rebuild_admin(net, lobby):
 	for child in admin_box.get_children():
 		admin_box.remove_child(child)
 		child.queue_free()
+	# the total at the top: everyone but the host (the server), you included
+	var total = Label.new()
+	total.text = "Players online: " + str(people.size() + 1)
+	total.add_color_override("font_color", Color(0.55, 1.0, 1.0))
+	admin_box.add_child(total)
 	if people.empty():
 		var none = Label.new()
 		none.text = "No other players"
