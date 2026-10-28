@@ -104,7 +104,7 @@ const ARG_HINTS = {
 # these change things for everyone, so they need a second click
 const CONFIRM_COMMANDS = ["exit", "shutdown", "clearchalk", "clearoutside", "reloadplugins", "ban", "say"]
 # not shown: !help is what fills the list, the other two are used by the Chalk menu
-const HIDDEN_COMMANDS = ["help", "chalkowners", "chalkbrowse", "catchcoins"]
+const HIDDEN_COMMANDS = ["help", "chalkowners", "chalkbrowse", "catchcoins", "wphud"]
 var help_open = false
 var help_commands = [] # [command, description]
 var help_signature = ""
@@ -514,6 +514,10 @@ func _poll():
 		feed_bar_end = 0
 		feed_bar_start = 0
 		feed_ready_at = 0
+		buff_seq = -1
+		hello_at = OS.get_ticks_msec() + 3000
+
+	_say_hello()
 
 	title_text = str(steam.getLobbyData(lobby, "wp_title"))
 	var color_text = str(steam.getLobbyData(lobby, "wp_title_color")).replace("#", "")
@@ -577,6 +581,92 @@ func _poll():
 		_start_feed_bar(now)
 	elif feeds < last_feeds:
 		last_feeds = feeds
+
+	_poll_buff(net, lobby)
+
+
+# --- buffs bought in the shop ---
+# The server publishes my last buff as "number,drink" in wp_b<my id>. When the number goes up I give my own player the
+# same effect the game's drink of that name gives (same fields, same values, see player.gd _consume_item), without any
+# item. The first number I see after arriving is where I stood, never a purchase. Nothing is saved: the fields are
+# timers inside the player.
+
+var buff_seq = -1
+var hello_at = 0
+
+const BUFF_NAMES = {
+	"speed": "Speed Drink", "speed_burst": "Speed Burst", "catch": "Lucky Catch", "catch_big": "Big Catch",
+	"catch_deluxe": "Deluxe Catch", "bounce": "Bouncy", "bounce_big": "Mega Bounce",
+}
+
+
+# tells the server this HUD can apply buffs (it only sells them to players that said so); repeated now and then in
+# case the server was restarted or its plugins reloaded
+func _say_hello():
+	var now = OS.get_ticks_msec()
+	if hello_at == 0 or now < hello_at:
+		return
+	if _send_hidden("!wphud buffs"):
+		hello_at = now + 30000
+	else:
+		hello_at = now + 3000
+
+
+func _poll_buff(net, lobby):
+	var parts = str(steam.getLobbyData(lobby, "wp_b" + str(net.STEAM_ID))).split(",")
+	var seq = int(parts[0]) if parts.size() >= 2 else 0
+	if buff_seq == -1 or seq < buff_seq:
+		buff_seq = seq
+	elif seq > buff_seq:
+		buff_seq = seq
+		_apply_buff(parts[1])
+
+
+func _apply_buff(drink):
+	var players = get_tree().get_nodes_in_group("controlled_player")
+	if players.empty() or not BUFF_NAMES.has(drink):
+		return
+	var p = players[0]
+	if p.get("boost_timer") == null or p.get("catch_drink_timer") == null or p.get("jump_bonus_timer") == null:
+		return # a game version without these fields
+	match drink:
+		"speed":
+			p.boost_timer = 18000
+			p.boost_amt = 1.3
+		"speed_burst":
+			p.boost_timer = 900
+			p.boost_amt = 4.0
+		"catch":
+			_set_catch(p, 1.15, 1.25, 1.0, 1, Vector2(1, 10), 0.0)
+		"catch_big":
+			_set_catch(p, 1.3, 1.45, 1.0, 2, Vector2(0, 0), 0.25)
+		"catch_deluxe":
+			_set_catch(p, 1.3, 1.45, 1.25, 3, Vector2(0, 0), 0.0)
+		"bounce":
+			p.jump_bonus_tier = 1
+			p.jump_bonus_timer = 1200
+			p.jump_bonus = 2.0
+			p.dive_bonus = 2.0
+		"bounce_big":
+			p.jump_bonus_tier = 2
+			p.jump_bonus_timer = 600
+			p.jump_bonus = 4.0
+			p.dive_bonus = 3.5
+	if p.has_method("_sync_sfx"):
+		p._sync_sfx("drink_nocap")
+	var data = get_node_or_null("/root/PlayerData")
+	if data != null and data.has_method("_send_notification"):
+		data._send_notification(BUFF_NAMES[drink] + " is active!")
+
+
+func _set_catch(p, boost, reel, xp, tier, gold_add, gold_percent):
+	p.catch_drink_timer = 18000
+	p.catch_drink_boost = boost
+	p.catch_drink_reel = reel
+	p.catch_drink_xp = xp
+	p.catch_drink_tier = tier
+	p.catch_drink_gold_add = gold_add
+	p.catch_drink_gold_percent = gold_percent
 
 
 func _start_feed_bar(now):

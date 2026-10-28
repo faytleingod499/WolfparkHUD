@@ -8,7 +8,7 @@ It adds a small panel at the top left with:
 
 - your **wolf coin** balance (on Wolf Park every fish you catch earns coins by quality: Normal 1 up to Alpha 6),
 - a **Feed Wolves** button,
-- a **Buy** menu listing everything the server sells,
+- a **Buy** menu listing everything the server sells (including temporary buffs like the game's drinks),
 - a bet box with a **Gamble** button,
 - a **Leaderboard** button,
 - a **Chalk** menu for your saved chalk drawings,

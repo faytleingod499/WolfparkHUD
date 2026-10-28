@@ -56,7 +56,7 @@ Replace the Feed plugin's DLL in `plugins/` with the new build and run `!reloadp
 configure; what the Buy menu lists comes from `shop.txt` (created next to `feed.txt`), the heading and gambling odds from `feed.txt`.
 
 ## How it works
-The Feed plugin writes `wp_hud=1`, `wp_meteor_cost` and `wp_shop` (what the Buy menu lists), `wp_gamble` (bet limits) and one `wp_p<SteamID>` = `coins,feeds[,roll,multiplier,change]` entry per online player
+The Feed plugin writes `wp_hud=1`, `wp_meteor_cost` and `wp_shop` (what the Buy menu lists), `wp_gamble` (bet limits), `wp_b<SteamID>` = `number,drink` (the last buff that player bought, applied when the number goes up) and one `wp_p<SteamID>` = `coins,feeds[,roll,multiplier,change]` entry per online player
 into the lobby data. The mod reads its own entry once or twice a second. The buttons type `!feed` / `!meteor` for
 you through the game's own chat, so the server needs no extra packet.
 

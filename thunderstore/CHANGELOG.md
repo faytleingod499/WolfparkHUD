@@ -1,3 +1,9 @@
+## 1.17.0
+- Buffs in the Buy menu: the server can now sell the game's own drink effects (Speed Drink, Speed Burst, Lucky Catch, Big
+  Catch, Deluxe Catch with extra XP, Bouncy, Mega Bounce). They work exactly like the drinks, for the same time, but need
+  no item, and they are never saved. The HUD tells the server it can apply them; players on an older HUD are not sold
+  buffs. Needs the updated Feed plugin on the server.
+
 ## 1.16.5
 - Admin panel: the list now starts with "Players online: N", the total number of players on the server (you included).
 
