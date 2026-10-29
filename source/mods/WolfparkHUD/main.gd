@@ -517,7 +517,7 @@ func _poll():
 		buff_seq = -1
 		hello_at = OS.get_ticks_msec() + 3000
 
-	_say_hello()
+	_say_hello(lobby)
 
 	title_text = str(steam.getLobbyData(lobby, "wp_title"))
 	var color_text = str(steam.getLobbyData(lobby, "wp_title_color")).replace("#", "")
@@ -601,14 +601,18 @@ const BUFF_NAMES = {
 }
 
 
-# tells the server this HUD can apply buffs (it only sells them to players that said so); repeated now and then in
-# case the server was restarted or its plugins reloaded
-func _say_hello():
+# tells the server this HUD can apply buffs (it only sells them to players that said so). Only sent to a server that
+# says it understands it (wp_buffs), so older servers are not answered with "Command not found"; repeated every 5
+# minutes in case the server's plugins were reloaded.
+func _say_hello(lobby):
 	var now = OS.get_ticks_msec()
 	if hello_at == 0 or now < hello_at:
 		return
+	if str(steam.getLobbyData(lobby, "wp_buffs")) != "1":
+		hello_at = now + 3000 # the server may not have published it yet
+		return
 	if _send_hidden("!wphud buffs"):
-		hello_at = now + 30000
+		hello_at = now + 300000
 	else:
 		hello_at = now + 3000
 

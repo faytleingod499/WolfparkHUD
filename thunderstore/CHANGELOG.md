@@ -1,3 +1,7 @@
+## 1.17.2
+- The HUD's hello to the server (used for buffs) is only sent to servers that understand it, once on arrival and then every
+  5 minutes instead of every 30 seconds. It no longer fills the server console or gets "Command not found" from older servers.
+
 ## 1.17.1
 - Hover over an item in the Buy menu to read what it does (buffs, meteor, rain cloud...). The server supplies the text,
   so it needs the updated Feed plugin; with an older one the Buy menu looks as before.
