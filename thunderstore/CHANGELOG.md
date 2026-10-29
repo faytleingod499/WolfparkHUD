@@ -1,3 +1,7 @@
+## 1.17.1
+- Hover over an item in the Buy menu to read what it does (buffs, meteor, rain cloud...). The server supplies the text,
+  so it needs the updated Feed plugin; with an older one the Buy menu looks as before.
+
 ## 1.17.0
 - Buffs in the Buy menu: the server can now sell the game's own drink effects (Speed Drink, Speed Burst, Lucky Catch, Big
   Catch, Deluxe Catch with extra XP, Bouncy, Mega Bounce). They work exactly like the drinks, for the same time, but need

@@ -535,7 +535,8 @@ func _poll():
 		for entry in shop_text.split(";", false):
 			var bits = entry.split("~")
 			if bits.size() >= 3:
-				shop_items.append({"id": bits[0], "label": bits[1], "price": int(bits[2])})
+				# a fourth part, if the server sends one, says what the item does (older Feed plugins send three)
+				shop_items.append({"id": bits[0], "label": bits[1], "price": int(bits[2]), "desc": bits[3] if bits.size() >= 4 else ""})
 		_rebuild_shop()
 
 	feed_cooldown_ms = int(str(steam.getLobbyData(lobby, "wp_feed_cd"))) * 1000
@@ -688,6 +689,9 @@ func _rebuild_shop():
 		button.set_meta("price", item["price"])
 		button.set_meta("label", item["label"])
 		shop_box.add_child(button)
+		# hovering over the item says what it does, in the game's own hover box
+		if item.get("desc", "") != "":
+			_add_tooltip(button, item["label"], item["desc"])
 	shop_panel.rect_size = Vector2(0, 0)
 
 
