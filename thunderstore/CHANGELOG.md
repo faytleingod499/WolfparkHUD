@@ -1,3 +1,8 @@
+## 1.18.1
+- Admins: **Ban** in the player list now opens a box for the reason (optional). The Ban button in the box, or Enter, sends the
+  ban with the reason, which is written to bans.txt and shown in the Bans list. Click Ban again to close the box. The reason
+  is saved with any server, the Bans list needs the updated server.
+
 ## 1.18.0
 - Admins get a **Bans** button at the top of the admin panel (shield) that shows the server's ban list from bans.txt,
   newest first. Each ban has an **Unban** button (a second click confirms) and a **Reason** button to add or change the

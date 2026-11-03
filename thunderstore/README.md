@@ -32,8 +32,8 @@ an existing save ask for a second click ("Sure?"). When someone shares a save wi
 ## For admins
 
 Server admins get a small shield button to the left of the title. It opens a list of everyone on the server
-(except the host) under the panel, with **Kick** and **Ban** beside each name. Ban asks for a second click
-("Sure?") so it can't happen by accident. The buttons use the server's own kick and ban commands, so the
+(except the host) under the panel, with **Kick** and **Ban** beside each name. Ban opens a box for the reason
+(optional); the Ban button in the box (or Enter) sends it, so it can't happen by accident. The buttons use the server's own kick and ban commands, so the
 server still checks that you're an admin.
 
 The **Bans** button at the top of that list shows the server's ban list (bans.txt), newest first, with the reason

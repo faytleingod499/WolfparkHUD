@@ -66,7 +66,8 @@ var admin_open = false
 var admin_button
 var admin_box
 var admin_signature = ""
-var ban_armed = {} # steam id -> until when its Ban button is waiting for the second click
+var ban_reason_for = "" # the player whose ban box (reason + confirm) is open
+var ban_reason_text = "" # what is typed in it, kept when the list is rebuilt
 
 # the ban list (admins): the server's bans.txt, asked for with the hidden !banlist and shown in the admin panel,
 # with Unban and a reason box for each ban
@@ -971,11 +972,6 @@ func _refresh():
 	if bans_capturing and now > bans_wait_until:
 		bans_capturing = false # the whole answer is in
 	if admin_box.visible:
-		for row in admin_box.get_children():
-			for button in row.get_children():
-				if button.has_meta("ban_id"):
-					var armed = ban_armed.get(button.get_meta("ban_id"), 0) > now
-					button.text = "Sure?" if armed else "Ban"
 		if bans_open:
 			_refresh_bans_buttons(now)
 			_fit_bans()
@@ -1118,7 +1114,13 @@ func _rebuild_admin(net, lobby):
 	people.sort_custom(self, "_by_name")
 	var waiting = bans_open and not bans_got and OS.get_ticks_msec() < bans_wait_until
 	# in the ban list the players don't matter, so a player joining does not rebuild it (and close a reason box)
-	var signature = str([true, bans_list, bans_total, bans_got, reason_for, waiting]) if bans_open else str(people)
+	var still_here = false
+	for person in people:
+		if person[1] == ban_reason_for:
+			still_here = true
+	if not still_here:
+		ban_reason_for = "" # that player left
+	var signature = str([true, bans_list, bans_total, bans_got, reason_for, waiting]) if bans_open else str([people, ban_reason_for])
 	if signature == admin_signature:
 		return
 	admin_signature = signature
@@ -1183,7 +1185,11 @@ func _rebuild_admin(net, lobby):
 		ban.connect("pressed", self, "_on_ban", [person[1]])
 		_glass_button(ban)
 		ban.add_stylebox_override("normal", _glass(Color(0.45, 0.08, 0.08, 0.45), Color(1.0, 0.5, 0.5, 0.55), 8, 0))
+		if ban_reason_for == person[1]:
+			ban.add_stylebox_override("normal", _glass(Color(0.75, 0.12, 0.12, 0.65), Color(1.0, 0.6, 0.6, 0.95), 8, 0))
 		row.add_child(ban)
+		if ban_reason_for == person[1]:
+			_add_ban_box(person[1])
 	panel.rect_size = Vector2()
 
 
@@ -1196,14 +1202,67 @@ func _on_kick(id):
 	_say("!kick " + str(id))
 
 
-# a ban needs a second click within a few seconds
+# Ban opens a box under the player for the reason (optional); the Ban button in it, or Enter, sends the ban.
+# The reason goes into bans.txt next to the name and shows in the ban list.
 func _on_ban(id):
-	var now = OS.get_ticks_msec()
-	if ban_armed.get(id, 0) > now:
-		ban_armed.erase(id)
-		_say("!ban " + str(id))
-	else:
-		ban_armed[id] = now + 3000
+	ban_reason_for = "" if ban_reason_for == id else id
+	ban_reason_text = ""
+	_rebuild_admin_now()
+
+
+func _add_ban_box(id):
+	var font = _small_font()
+	var edit = HBoxContainer.new()
+	edit.add_constant_override("separation", 6)
+	edit.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	admin_box.add_child(edit)
+	var field = LineEdit.new()
+	field.placeholder_text = "Reason (optional)"
+	field.max_length = BAN_REASON_MAX
+	field.text = ban_reason_text
+	field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	field.rect_min_size = Vector2(150, 0)
+	field.caret_blink = true
+	field.add_stylebox_override("normal", _glass(Color(0, 0, 0, 0.30), Color(0.55, 1.0, 1.0, 0.35), 8, 0))
+	field.add_stylebox_override("focus", _glass(Color(0, 0, 0, 0.40), Color(0.8, 1.0, 1.0, 0.9), 8, 0))
+	field.add_color_override("font_color", Color(1, 1, 1))
+	if font != null:
+		field.add_font_override("font", font)
+	field.connect("text_changed", self, "_on_ban_reason_changed")
+	field.connect("focus_entered", self, "_on_bet_focus")
+	field.connect("focus_exited", self, "_on_bet_unfocus")
+	field.connect("text_entered", self, "_on_ban_entered", [id])
+	edit.add_child(field)
+	reason_field = field
+	field.call_deferred("grab_focus")
+	var go = Button.new()
+	go.text = "Ban"
+	go.focus_mode = Control.FOCUS_NONE
+	go.rect_min_size = Vector2(52, 0)
+	go.connect("pressed", self, "_on_ban_confirm", [id])
+	_glass_button(go)
+	go.add_stylebox_override("normal", _glass(Color(0.75, 0.12, 0.12, 0.65), Color(1.0, 0.6, 0.6, 0.95), 8, 0))
+	edit.add_child(go)
+
+
+func _on_ban_reason_changed(text):
+	ban_reason_text = text
+
+
+func _on_ban_entered(_text, id):
+	_on_ban_confirm(id)
+
+
+func _on_ban_confirm(id):
+	var reason = ban_reason_text
+	if reason_field != null and is_instance_valid(reason_field):
+		reason = reason_field.text
+	reason = reason.replace("\n", " ").replace("\"", "'").strip_edges().left(BAN_REASON_MAX)
+	# always with the quotes: the server's !ban asks for them as soon as there is anything after the ID
+	_say("!ban " + id + " \"" + reason + "\"")
+	ban_reason_for = ""
+	ban_reason_text = ""
+	_rebuild_admin_now()
 
 
 # --- the ban list ---
@@ -1214,6 +1273,8 @@ func _on_ban(id):
 func _on_bans_toggle():
 	bans_open = not bans_open
 	reason_for = ""
+	ban_reason_for = ""
+	ban_reason_text = ""
 	unban_armed.clear()
 	admin_signature = ""
 	if bans_open:
