@@ -1,3 +1,9 @@
+## 1.18.0
+- Admins get a **Bans** button at the top of the admin panel (shield) that shows the server's ban list from bans.txt,
+  newest first. Each ban has an **Unban** button (a second click confirms) and a **Reason** button to add or change the
+  reason shown under the name. Needs the updated server (it adds the hidden !banlist and !banreason commands); on an
+  older server the list says it got no answer.
+
 ## 1.17.2
 - The HUD's hello to the server (used for buffs) is only sent to servers that understand it, once on arrival and then every
   5 minutes instead of every 30 seconds. It no longer fills the server console or gets "Command not found" from older servers.

@@ -68,6 +68,25 @@ var admin_box
 var admin_signature = ""
 var ban_armed = {} # steam id -> until when its Ban button is waiting for the second click
 
+# the ban list (admins): the server's bans.txt, asked for with the hidden !banlist and shown in the admin panel,
+# with Unban and a reason box for each ban
+const BANS_WIDTH = 340
+const BANS_MAX_HEIGHT = 260
+const BAN_REASON_MAX = 120
+var bans_open = false
+var bans_list = [] # [steam id, name, reason], newest first
+var bans_total = 0
+var bans_got = false # the server answered
+var bans_text = ""
+var bans_capturing = false
+var bans_wait_until = 0 # catching the answer to !banlist until then
+var bans_refresh_at = 0 # ask again at this time (after an unban or a new reason)
+var bans_scroll = null
+var bans_rows = null
+var unban_armed = {} # steam id -> until when its Unban button is waiting for the second click
+var reason_for = "" # the ban whose reason box is open
+var reason_field = null
+
 # the help button: asks the server for !help quietly and shows its answer here instead of in chat
 var help_button
 var help_box
@@ -104,7 +123,7 @@ const ARG_HINTS = {
 # these change things for everyone, so they need a second click
 const CONFIRM_COMMANDS = ["exit", "shutdown", "clearchalk", "clearoutside", "reloadplugins", "ban", "say"]
 # not shown: !help is what fills the list, the other two are used by the Chalk menu
-const HIDDEN_COMMANDS = ["help", "chalkowners", "chalkbrowse", "catchcoins", "wphud"]
+const HIDDEN_COMMANDS = ["help", "chalkowners", "chalkbrowse", "catchcoins", "wphud", "banlist", "banreason"]
 var help_open = false
 var help_commands = [] # [command, description]
 var help_signature = ""
@@ -832,6 +851,8 @@ func _on_chat_update():
 		return
 	var lines = net.GAMECHAT_COLLECTIONS
 	var changed = _capture_help(lines)
+	if not changed and _capture_bans(lines):
+		changed = true
 	if chat_color == "":
 		_chat_done(net, lines, changed)
 		return
@@ -943,12 +964,21 @@ func _refresh():
 	if admin_box.visible != (is_admin and admin_open):
 		admin_box.visible = is_admin and admin_open
 		panel.rect_size = Vector2() # shrink back to fit when it closes
+	if bans_refresh_at > 0 and now >= bans_refresh_at:
+		bans_refresh_at = 0
+		if bans_open:
+			_request_bans(false)
+	if bans_capturing and now > bans_wait_until:
+		bans_capturing = false # the whole answer is in
 	if admin_box.visible:
 		for row in admin_box.get_children():
 			for button in row.get_children():
 				if button.has_meta("ban_id"):
 					var armed = ban_armed.get(button.get_meta("ban_id"), 0) > now
 					button.text = "Sure?" if armed else "Ban"
+		if bans_open:
+			_refresh_bans_buttons(now)
+			_fit_bans()
 	_refresh_chalk(now)
 	coin_label.text = "Coins: " + str(coins)
 	feeds_label.text = "Fed: " + str(feeds)
@@ -1065,6 +1095,10 @@ func _on_board():
 func _on_admin_toggle():
 	admin_open = not admin_open
 	admin_signature = ""
+	if not admin_open and reason_field != null and is_instance_valid(reason_field) and reason_field.has_focus():
+		reason_field.release_focus()
+	if admin_open and bans_open:
+		_request_bans(true) # it was left on the ban list, show the current one
 	admin_button.update()
 	if admin_open:
 		var net = get_node_or_null("/root/Network")
@@ -1082,18 +1116,42 @@ func _rebuild_admin(net, lobby):
 			continue
 		people.append([str(member.get("steam_name", id)), id])
 	people.sort_custom(self, "_by_name")
-	var signature = str(people)
+	var waiting = bans_open and not bans_got and OS.get_ticks_msec() < bans_wait_until
+	# in the ban list the players don't matter, so a player joining does not rebuild it (and close a reason box)
+	var signature = str([true, bans_list, bans_total, bans_got, reason_for, waiting]) if bans_open else str(people)
 	if signature == admin_signature:
 		return
 	admin_signature = signature
+	if reason_field != null and is_instance_valid(reason_field) and reason_field.has_focus():
+		reason_field.release_focus()
+	reason_field = null
+	bans_scroll = null
+	bans_rows = null
 	for child in admin_box.get_children():
 		admin_box.remove_child(child)
 		child.queue_free()
-	# the total at the top: everyone but the host (the server), you included
+	# the top row: the total (players online: everyone but the host, you included) and the Bans / Players button
+	var head = HBoxContainer.new()
+	head.add_constant_override("separation", 6)
+	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	admin_box.add_child(head)
 	var total = Label.new()
-	total.text = "Players online: " + str(people.size() + 1)
+	total.text = ("Bans: " + str(bans_total)) if bans_open else ("Players online: " + str(people.size() + 1))
+	total.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	total.add_color_override("font_color", Color(0.55, 1.0, 1.0))
-	admin_box.add_child(total)
+	head.add_child(total)
+	var mode_button = Button.new()
+	mode_button.text = "Players" if bans_open else "Bans"
+	mode_button.focus_mode = Control.FOCUS_NONE
+	mode_button.rect_min_size = Vector2(64, 0)
+	mode_button.connect("pressed", self, "_on_bans_toggle")
+	_glass_button(mode_button)
+	head.add_child(mode_button)
+	_add_tooltip(mode_button, "Bans" if not bans_open else "Players", "The server's ban list: unban someone or add a reason" if not bans_open else "Back to the players on the server")
+	if bans_open:
+		_build_bans_view(waiting)
+		panel.rect_size = Vector2()
+		return
 	if people.empty():
 		var none = Label.new()
 		none.text = "No other players"
@@ -1146,6 +1204,272 @@ func _on_ban(id):
 		_say("!ban " + str(id))
 	else:
 		ban_armed[id] = now + 3000
+
+
+# --- the ban list ---
+# The Cove server answers the hidden !banlist (admins only) with "Bans: N" and then one "steamid|name|reason" line per
+# ban, newest first, as chat messages from the server. They are taken out of the chat and shown in the admin panel.
+# Unban sends !unban, a reason sends !banreason; the server still checks that you are an admin.
+
+func _on_bans_toggle():
+	bans_open = not bans_open
+	reason_for = ""
+	unban_armed.clear()
+	admin_signature = ""
+	if bans_open:
+		_request_bans(true)
+	_rebuild_admin_now()
+
+
+func _rebuild_admin_now():
+	var net = get_node_or_null("/root/Network")
+	if net != null and admin_open:
+		_rebuild_admin(net, net.STEAM_LOBBY_ID)
+
+
+# clear = false keeps the list on screen until the new answer comes (after an unban or a new reason)
+func _request_bans(clear):
+	bans_text = ""
+	bans_capturing = false
+	if clear:
+		bans_got = false
+		bans_list = []
+		bans_total = 0
+	bans_wait_until = OS.get_ticks_msec() + 5000
+	_say("!banlist")
+
+
+# called for every new chat line while an answer is expected; true when the line was taken out of the chat
+func _capture_bans(lines):
+	if lines.empty():
+		return false
+	var last = str(lines[lines.size() - 1])
+	if last == help_last_seen:
+		return false # nothing new in the global chat (it was a local message)
+	var now = OS.get_ticks_msec()
+	if now > bans_wait_until:
+		return false
+	if last.find("[color=") != -1:
+		return false # a player's message: those always carry their coloured name
+	var body = last.substr(1) if last.begins_with("\n") else last
+	if not bans_capturing:
+		if not body.strip_edges().begins_with("Bans:"):
+			return false
+		bans_capturing = true
+		bans_text = body
+	else:
+		bans_text += body # the server cuts long messages into pieces, they join back up exactly
+	bans_wait_until = now + 1500 # a little longer for the next piece
+	lines.remove(lines.size() - 1)
+	_parse_bans(bans_text)
+	return true
+
+
+func _parse_bans(text):
+	var list = []
+	var first = true
+	for line in text.split("\n", false):
+		if first:
+			first = false
+			bans_total = int(line.replace("Bans:", "").strip_edges())
+			bans_got = true
+			continue
+		var parts = line.split("|", true)
+		if parts.size() < 3:
+			continue # a piece that is not complete yet, or not part of the list
+		var id = parts[0].strip_edges()
+		if id.length() < 15 or not id.is_valid_integer():
+			continue
+		list.append([id, parts[1].strip_edges(), parts[2].strip_edges()])
+	bans_list = list
+
+
+func _build_bans_view(waiting):
+	if not bans_got:
+		var asking = Label.new()
+		asking.text = "Asking the server..." if waiting else "The server did not answer !banlist"
+		asking.add_color_override("font_color", Color(1, 1, 1, 0.55))
+		admin_box.add_child(asking)
+		return
+	if bans_list.empty():
+		var none = Label.new()
+		none.text = "No bans"
+		none.add_color_override("font_color", Color(1, 1, 1, 0.55))
+		admin_box.add_child(none)
+		return
+	if bans_total > bans_list.size():
+		var cut = Label.new()
+		cut.text = "Showing the newest " + str(bans_list.size())
+		cut.add_color_override("font_color", Color(1, 1, 1, 0.55))
+		admin_box.add_child(cut)
+	bans_scroll = ScrollContainer.new()
+	bans_scroll.scroll_horizontal_enabled = false
+	bans_scroll.rect_min_size = Vector2(BANS_WIDTH, 0)
+	bans_scroll.mouse_filter = Control.MOUSE_FILTER_STOP
+	admin_box.add_child(bans_scroll)
+	var bar = bans_scroll.get_v_scrollbar()
+	bar.add_stylebox_override("scroll", _glass(Color(0, 0, 0, 0.25), Color(0.55, 1.0, 1.0, 0.25), 4, 0))
+	bar.add_stylebox_override("scroll_focus", _glass(Color(0, 0, 0, 0.25), Color(0.55, 1.0, 1.0, 0.25), 4, 0))
+	bar.add_stylebox_override("grabber", _glass(Color(0.3, 1.0, 1.0, 0.35), Color(0.8, 1.0, 1.0, 0.6), 4, 0))
+	bar.add_stylebox_override("grabber_highlight", _glass(Color(0.3, 1.0, 1.0, 0.55), Color(0.8, 1.0, 1.0, 0.9), 4, 0))
+	bar.add_stylebox_override("grabber_pressed", _glass(Color(0.3, 1.0, 1.0, 0.7), Color(0.8, 1.0, 1.0, 1.0), 4, 0))
+	bans_rows = VBoxContainer.new()
+	bans_rows.add_constant_override("separation", 6)
+	bans_rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bans_rows.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bans_scroll.add_child(bans_rows)
+	for entry in bans_list:
+		_add_ban_row(entry)
+	_fit_bans()
+
+
+# one ban: the name with Reason and Unban, the reason under it, and the reason box when it is open
+func _add_ban_row(entry):
+	var id = entry[0]
+	var font = _small_font()
+	var box = VBoxContainer.new()
+	box.add_constant_override("separation", 1)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bans_rows.add_child(box)
+
+	var row = HBoxContainer.new()
+	row.add_constant_override("separation", 6)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(row)
+	var name = Label.new()
+	name.text = entry[1] if entry[1] != "" else id
+	name.clip_text = true
+	name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name.rect_min_size = Vector2(120, 0)
+	name.add_color_override("font_color", Color(1, 1, 1))
+	row.add_child(name)
+	_add_tooltip(name, name.text, "Steam ID " + id)
+	var reason_button = Button.new()
+	reason_button.text = "Reason"
+	reason_button.focus_mode = Control.FOCUS_NONE
+	reason_button.connect("pressed", self, "_on_reason_toggle", [id])
+	_glass_button(reason_button)
+	if reason_for == id:
+		reason_button.add_stylebox_override("normal", _glass(Color(0.3, 1.0, 1.0, 0.40), Color(0.8, 1.0, 1.0, 0.9), 8, 0))
+	row.add_child(reason_button)
+	var unban = Button.new()
+	unban.text = "Unban"
+	unban.focus_mode = Control.FOCUS_NONE
+	unban.rect_min_size = Vector2(56, 0)
+	unban.set_meta("unban_id", id)
+	unban.connect("pressed", self, "_on_unban", [id])
+	_glass_button(unban)
+	row.add_child(unban)
+
+	var why = Label.new()
+	why.text = entry[2] if entry[2] != "" else "No reason given"
+	why.autowrap = true
+	why.rect_min_size = Vector2(BANS_WIDTH - 14, 0) # room for the scrollbar
+	why.add_color_override("font_color", Color(1, 1, 1, 0.8) if entry[2] != "" else Color(1, 1, 1, 0.4))
+	if font != null:
+		why.add_font_override("font", font)
+	box.add_child(why)
+
+	if reason_for == id:
+		var edit = HBoxContainer.new()
+		edit.add_constant_override("separation", 6)
+		edit.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		box.add_child(edit)
+		var field = LineEdit.new()
+		field.placeholder_text = "Reason for this ban"
+		field.max_length = BAN_REASON_MAX
+		field.text = entry[2]
+		field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		field.caret_blink = true
+		field.add_stylebox_override("normal", _glass(Color(0, 0, 0, 0.30), Color(0.55, 1.0, 1.0, 0.35), 8, 0))
+		field.add_stylebox_override("focus", _glass(Color(0, 0, 0, 0.40), Color(0.8, 1.0, 1.0, 0.9), 8, 0))
+		field.add_color_override("font_color", Color(1, 1, 1))
+		if font != null:
+			field.add_font_override("font", font)
+		field.connect("focus_entered", self, "_on_bet_focus")
+		field.connect("focus_exited", self, "_on_bet_unfocus")
+		field.connect("text_entered", self, "_on_reason_entered", [id])
+		edit.add_child(field)
+		reason_field = field
+		field.call_deferred("grab_focus")
+		var save = Button.new()
+		save.text = "Save"
+		save.focus_mode = Control.FOCUS_NONE
+		save.connect("pressed", self, "_on_reason_save", [id])
+		_glass_button(save)
+		if font != null:
+			save.add_font_override("font", font)
+		edit.add_child(save)
+
+
+# "Sure?" on an Unban that waits for its second click
+func _refresh_bans_buttons(now):
+	if bans_rows == null or not is_instance_valid(bans_rows):
+		return
+	for box in bans_rows.get_children():
+		for row in box.get_children():
+			for b in row.get_children():
+				if b is Button and b.has_meta("unban_id"):
+					b.text = "Sure?" if unban_armed.get(b.get_meta("unban_id"), 0) > now else "Unban"
+
+
+func _fit_bans():
+	if bans_scroll == null or not is_instance_valid(bans_scroll) or bans_rows == null:
+		return
+	var content = bans_rows.get_combined_minimum_size().y
+	var room = BANS_MAX_HEIGHT
+	if bans_scroll.is_inside_tree() and admin_box.visible:
+		room = min(room, get_viewport().get_visible_rect().size.y - bans_scroll.rect_global_position.y - 16)
+	var height = floor(clamp(content, 0, max(60, room)))
+	if bans_scroll.rect_min_size.y != height:
+		bans_scroll.rect_min_size = Vector2(BANS_WIDTH, height)
+		bans_scroll.rect_size = Vector2(BANS_WIDTH, height)
+		panel.rect_size = Vector2()
+
+
+# an unban needs a second click within a few seconds
+func _on_unban(id):
+	var now = OS.get_ticks_msec()
+	if unban_armed.get(id, 0) > now:
+		unban_armed.erase(id)
+		_say("!unban " + id)
+		for i in range(bans_list.size()):
+			if bans_list[i][0] == id:
+				bans_list.remove(i)
+				break
+		bans_total = int(max(0, bans_total - 1))
+		if reason_for == id:
+			reason_for = ""
+		bans_refresh_at = now + 1200 # then ask again to show what the server really has
+		_rebuild_admin_now()
+	else:
+		unban_armed[id] = now + 3000
+
+
+func _on_reason_toggle(id):
+	reason_for = "" if reason_for == id else id
+	_rebuild_admin_now()
+
+
+func _on_reason_entered(_text, id):
+	_on_reason_save(id)
+
+
+func _on_reason_save(id):
+	if reason_field == null or not is_instance_valid(reason_field):
+		return
+	var text = reason_field.text.replace("\n", " ").strip_edges()
+	if text == "":
+		reason_field.grab_focus()
+		return
+	text = text.left(BAN_REASON_MAX)
+	_say("!banreason " + id + " " + text)
+	for entry in bans_list:
+		if entry[0] == id:
+			entry[2] = text.replace("|", "/").replace("[", "(").replace("]", ")")
+	reason_for = ""
+	bans_refresh_at = OS.get_ticks_msec() + 1200
+	_rebuild_admin_now()
 
 
 # a small shield, drawn so it does not depend on any font having an icon for it
@@ -1236,6 +1560,8 @@ func _typing_field():
 		return chalk_name_field
 	if help_arg_field != null and is_instance_valid(help_arg_field) and help_arg_field.has_focus():
 		return help_arg_field
+	if reason_field != null and is_instance_valid(reason_field) and reason_field.has_focus():
+		return reason_field
 	return null
 
 

@@ -36,6 +36,10 @@ Server admins get a small shield button to the left of the title. It opens a lis
 ("Sure?") so it can't happen by accident. The buttons use the server's own kick and ban commands, so the
 server still checks that you're an admin.
 
+The **Bans** button at the top of that list shows the server's ban list (bans.txt), newest first, with the reason
+under each name. **Unban** (second click to confirm) removes a ban; **Reason** adds or changes the reason. This needs
+the updated server; **Players** goes back to the player list.
+
 In the Chalk menu, admins also get **All players**: everyone who has chalk saves, whether they're online or
 not. Click a name to open their drawings and **Load** or **Delete** any of them.
 
