@@ -14,9 +14,12 @@ It adds a small panel at the top left with:
 - a **Chalk** menu for your saved chalk drawings,
 - a **?** button listing every command you can use, click one to send it (commands that need more open a small box).
 
-Drag the `::` handle to move the panel; it remembers where you put it. Commands you type starting with `!`
-go to the server only and don't show in chat. Server messages show in their own colour, and the chat
-window starts expanded.
+Drag the `::` handle to move the panel; it remembers where you put it. **Click** the handle (without dragging)
+to fold the panel into a small wolf-face button, drag that to move it, click it to open the panel again.
+Commands you type starting with `!` go to the server only and don't show in chat. Server messages show in
+their own colour (sky blue by default), and the chat window starts expanded. The round colour swatch next to
+the **?** button opens a hue slider to pick another colour for server messages in your own chat; **Reset** goes
+back to the server's colour.
 
 While you're on the server you can also wear the titles **Lonely** and **Battery Charger** (Cosmetics, Misc tab).
 They're taken off again when you leave.
@@ -26,7 +29,8 @@ They're taken off again when you leave.
 The **Chalk** button opens a menu under the panel. Pick a canvas (it starts on the one nearest to you), type a
 name and press **Save** to keep what's drawn there. Your saves are listed below with **Load** (puts it on the
 picked canvas), **Share** (pick a player to offer a copy to) and **Delete**. Loading, deleting and saving over
-an existing save ask for a second click ("Sure?"). When someone shares a save with you, **Accept** and
+an existing save ask for a second click ("Sure?"). Admins also get a **Clear** button next to the canvas
+numbers that wipes the picked canvas for everyone (second click to confirm). When someone shares a save with you, **Accept** and
 **Decline** appear in the menu. Click a save's name to put it in the name box.
 
 ## For admins

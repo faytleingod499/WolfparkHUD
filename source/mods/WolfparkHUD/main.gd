@@ -18,6 +18,9 @@ const CHALK_CANVASES = 4
 const CHALK_NAME_MAX = 32
 const CHALK_DEBOUNCE_MS = 1500
 const ARM_MS = 3000
+const DRAG_CLICK_PIXELS = 4 # a press that moves less than this is a click on the grip / the wolf button
+const COLOR_SLIDER_WIDTH = 150
+const DEFAULT_CHAT_COLOR = "87CEEB" # sky blue, what the server gives its messages unless the owner changed it
 
 var steam = null
 var layer
@@ -183,6 +186,19 @@ var chalk_all_list
 var poll_timer = 0.0
 var dragging = false
 var drag_offset = Vector2()
+var drag_start = Vector2()
+var drag_moved = false
+# the panel folded into a small wolf button (click the :: grip, click the button to open it again)
+var collapsed = false
+var compact_button
+# the server message colour: a hue slider; empty = the colour the server gives
+var chat_custom = ""
+var color_open = false
+var color_button
+var color_box
+var color_slider
+var color_rainbow
+var chalk_clear_button
 var theme_applied = false
 var locked_hud = null
 var pending_unlock = false
@@ -193,6 +209,8 @@ func _ready():
 		steam = Engine.get_singleton("Steam")
 	_build_ui()
 	_load_config()
+	compact_button.rect_position = panel.rect_position
+	_sync_color_slider()
 	_connect_chat()
 	_register_title()
 	_revoke_title() # in case the game was closed while the title was still handed out
@@ -220,6 +238,20 @@ func _build_ui():
 	panel.add_stylebox_override("panel", _glass(Color(0.06, 0.12, 0.18, 0.55), Color(0.55, 1.0, 1.0, 0.45), 10, 6))
 	layer.add_child(panel)
 
+	# the folded panel: a small wolf face in the same spot, it can be dragged too
+	compact_button = Button.new()
+	compact_button.visible = false
+	compact_button.focus_mode = Control.FOCUS_NONE
+	compact_button.rect_min_size = Vector2(36, 30)
+	compact_button.rect_position = DEFAULT_POS
+	compact_button.mouse_default_cursor_shape = Control.CURSOR_MOVE
+	compact_button.connect("gui_input", self, "_on_grip_input")
+	compact_button.connect("draw", self, "_draw_wolf")
+	_glass_button(compact_button)
+	compact_button.add_stylebox_override("normal", _glass(Color(0.06, 0.12, 0.18, 0.55), Color(0.55, 1.0, 1.0, 0.45), 10, 6))
+	layer.add_child(compact_button)
+	_add_tooltip(compact_button, "Wolf Park", "Click to open the panel, drag to move it")
+
 	var margin = MarginContainer.new()
 	margin.add_constant_override("margin_left", 10)
 	margin.add_constant_override("margin_right", 10)
@@ -245,7 +277,7 @@ func _build_ui():
 	grip.mouse_default_cursor_shape = Control.CURSOR_MOVE
 	grip.connect("gui_input", self, "_on_grip_input")
 	row.add_child(grip)
-	_add_tooltip(grip, "Move", "Drag to move this window")
+	_add_tooltip(grip, "Move", "Drag to move this window, click to fold it into a small button")
 
 	# the title, coins and fed count sit centred in the rest of the row
 	var info = HBoxContainer.new()
@@ -275,6 +307,15 @@ func _build_ui():
 	_glass_button(help_button)
 	info.add_child(help_button)
 	_add_tooltip(help_button, "Commands", "Every command you can use here. Click one to type it in chat")
+
+	color_button = Button.new()
+	color_button.focus_mode = Control.FOCUS_NONE
+	color_button.rect_min_size = Vector2(24, 20)
+	color_button.connect("pressed", self, "_on_color_toggle")
+	color_button.connect("draw", self, "_draw_color_swatch")
+	_glass_button(color_button)
+	info.add_child(color_button)
+	_add_tooltip(color_button, "Message colour", "The colour of server messages in your chat")
 
 	title_label = Label.new()
 	title_label.visible = false
@@ -399,6 +440,51 @@ func _build_ui():
 	help_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	help_list.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	help_scroll.add_child(help_list)
+
+	# the server message colour: one thin hue slider and a reset, opening the panel downwards
+	color_box = HBoxContainer.new()
+	color_box.visible = false
+	color_box.add_constant_override("separation", 6)
+	color_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_child(color_box)
+	var track = Control.new()
+	track.rect_min_size = Vector2(COLOR_SLIDER_WIDTH, 18)
+	track.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	track.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	color_box.add_child(track)
+	color_rainbow = TextureRect.new()
+	color_rainbow.texture = _rainbow(0.43, 0.92)
+	color_rainbow.expand = true
+	color_rainbow.stretch_mode = TextureRect.STRETCH_SCALE
+	color_rainbow.anchor_right = 1.0
+	color_rainbow.anchor_bottom = 1.0
+	color_rainbow.margin_top = 5
+	color_rainbow.margin_bottom = -5
+	color_rainbow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	track.add_child(color_rainbow)
+	color_slider = HSlider.new()
+	color_slider.min_value = 0.0
+	color_slider.max_value = 1.0
+	color_slider.step = 0.002
+	color_slider.focus_mode = Control.FOCUS_NONE
+	color_slider.anchor_right = 1.0
+	color_slider.anchor_bottom = 1.0
+	color_slider.add_stylebox_override("slider", StyleBoxEmpty.new())
+	color_slider.add_stylebox_override("grabber_area", StyleBoxEmpty.new())
+	color_slider.add_stylebox_override("grabber_area_highlight", StyleBoxEmpty.new())
+	color_slider.add_icon_override("grabber", _knob(false))
+	color_slider.add_icon_override("grabber_highlight", _knob(true))
+	color_slider.add_icon_override("grabber_disabled", _knob(false))
+	color_slider.connect("value_changed", self, "_on_color_slider")
+	color_slider.connect("drag_ended", self, "_on_color_drag_ended")
+	track.add_child(color_slider)
+	var color_reset = Button.new()
+	color_reset.text = "Reset"
+	color_reset.focus_mode = Control.FOCUS_NONE
+	color_reset.connect("pressed", self, "_on_color_reset")
+	_glass_button(color_reset)
+	color_box.add_child(color_reset)
+	_add_tooltip(color_reset, "Reset", "Back to the colour the server uses")
 
 	_build_chalk(column)
 
@@ -543,9 +629,12 @@ func _poll():
 	var color_text = str(steam.getLobbyData(lobby, "wp_title_color")).replace("#", "")
 	title_color = Color(color_text) if color_text.length() == 6 else Color(0.0, 1.0, 1.0)
 
-	chat_color = str(steam.getLobbyData(lobby, "wp_chat_color")).replace("#", "")
-	if chat_color.length() != 6:
-		chat_color = ""
+	var server_color = str(steam.getLobbyData(lobby, "wp_chat_color")).replace("#", "")
+	if server_color.length() != 6 or not server_color.is_valid_hex_number():
+		server_color = ""
+	if server_color != chat_color:
+		chat_color = server_color
+		_update_rainbow()
 
 	# what the Buy button lists, "id~Label~price;id~Label~price"
 	var shop_text = str(steam.getLobbyData(lobby, "wp_shop"))
@@ -854,14 +943,15 @@ func _on_chat_update():
 	var changed = _capture_help(lines)
 	if not changed and _capture_bans(lines):
 		changed = true
-	if chat_color == "":
+	var wrap = _wrap_color()
+	if wrap == "":
 		_chat_done(net, lines, changed)
 		return
 	for i in range(lines.size()):
 		var line = str(lines[i])
 		if line.find("[color=") == -1 and line.strip_edges() != "":
 			var body = line.substr(1) if line.begins_with("\n") else line
-			lines[i] = "\n[color=#" + chat_color + "]" + body + "[/color]"
+			lines[i] = "\n[color=#" + wrap + "]" + body + "[/color]"
 			changed = true
 	_chat_done(net, lines, changed)
 
@@ -904,6 +994,7 @@ func _expand_chat():
 func _refresh():
 	if not active:
 		panel.visible = false
+		compact_button.visible = false
 		shop_panel.visible = false
 		dragging = false
 		_unlock_hud()
@@ -912,6 +1003,7 @@ func _refresh():
 	var hud = _get_hud()
 	if hud == null:
 		panel.visible = false
+		compact_button.visible = false
 		shop_panel.visible = false
 		return
 
@@ -930,7 +1022,8 @@ func _refresh():
 	var options = get_node_or_null("/root/OptionsMenu")
 	if options != null and options.get("open") == true:
 		show = false
-	panel.visible = show
+	panel.visible = show and not collapsed
+	compact_button.visible = show and collapsed
 	if not show:
 		shop_panel.visible = false
 		_unlock_hud()
@@ -942,6 +1035,11 @@ func _refresh():
 		if main != null and main.theme != null:
 			panel.theme = main.theme
 			shop_panel.theme = main.theme
+			compact_button.theme = main.theme
+	if collapsed:
+		shop_panel.visible = false
+		_unlock_hud()
+		return
 
 	var now = OS.get_ticks_msec()
 	title_label.visible = title_text != ""
@@ -961,6 +1059,9 @@ func _refresh():
 		_fit_help()
 	if help_box.visible != help_show:
 		help_box.visible = help_show
+		panel.rect_size = Vector2()
+	if color_box.visible != color_open:
+		color_box.visible = color_open
 		panel.rect_size = Vector2()
 	if admin_box.visible != (is_admin and admin_open):
 		admin_box.visible = is_admin and admin_open
@@ -1667,7 +1768,18 @@ func _build_chalk(column):
 		chalk_canvas_buttons.append(b)
 	chalk_near_label = Label.new()
 	chalk_near_label.add_color_override("font_color", Color(1, 1, 1, 0.55))
+	chalk_near_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	canvas_row.add_child(chalk_near_label)
+	# admins: wipe the picked canvas for everybody (!clearchalk), second click confirms
+	chalk_clear_button = Button.new()
+	chalk_clear_button.text = "Clear"
+	chalk_clear_button.visible = false
+	chalk_clear_button.focus_mode = Control.FOCUS_NONE
+	chalk_clear_button.connect("pressed", self, "_on_chalk_clear")
+	_glass_button(chalk_clear_button)
+	chalk_clear_button.add_stylebox_override("normal", _glass(Color(0.45, 0.08, 0.08, 0.45), Color(1.0, 0.5, 0.5, 0.55), 8, 0))
+	canvas_row.add_child(chalk_clear_button)
+	_add_tooltip(chalk_clear_button, "Clear canvas", "Wipes the picked canvas for everybody. Click twice")
 
 	chalk_save_row = HBoxContainer.new()
 	chalk_save_row.add_constant_override("separation", 6)
@@ -1962,6 +2074,9 @@ func _refresh_chalk(now):
 	for i in range(chalk_canvas_buttons.size()):
 		chalk_canvas_buttons[i].pressed = i == chalk_canvas
 	chalk_near_label.text = "nearest" if chalk_canvas >= 0 and chalk_canvas == chalk_nearest else ""
+	chalk_clear_button.visible = is_admin
+	chalk_clear_button.disabled = chalk_canvas < 0 or now < chalk_ready_at
+	chalk_clear_button.text = "Sure?" if _armed("clear:" + str(chalk_canvas), now) else "Clear"
 
 	var typed = chalk_name_field.text
 	var exists = chalk_names.has(typed)
@@ -2067,6 +2182,14 @@ func _on_chalk_load(save, owner):
 	chalk_ready_at = now + CHALK_DEBOUNCE_MS
 	chalk_load_ready_at = now + (CHALK_DEBOUNCE_MS if is_admin else max(chalk_cooldown * 1000, CHALK_DEBOUNCE_MS))
 	_say("!chalkload " + save + " " + str(chalk_canvas) + ("" if owner == "" else " " + owner))
+
+
+# wipes the picked canvas for everybody, so it needs a second click
+func _on_chalk_clear():
+	if chalk_canvas < 0 or not _arm("clear:" + str(chalk_canvas)):
+		return
+	chalk_ready_at = OS.get_ticks_msec() + CHALK_DEBOUNCE_MS
+	_say("!clearchalk " + str(chalk_canvas))
 
 
 func _on_chalk_delete(save, owner):
@@ -2521,23 +2644,178 @@ func _input(event):
 
 func _on_grip_input(event):
 	if event is InputEventMouseButton and event.button_index == BUTTON_LEFT:
-		dragging = event.pressed
-		if dragging:
-			drag_offset = panel.rect_position - panel.get_global_mouse_position()
-		else:
-			_save_config()
+		if event.pressed:
+			dragging = true
+			drag_moved = false
+			drag_start = panel.get_global_mouse_position()
+			var target = compact_button if collapsed else panel
+			drag_offset = target.rect_position - drag_start
+		elif dragging:
+			_end_drag()
 
 
 func _drag(event):
 	if event is InputEventMouseMotion:
-		var pos = panel.get_global_mouse_position() + drag_offset
+		var mouse = panel.get_global_mouse_position()
+		if not drag_moved and mouse.distance_to(drag_start) < DRAG_CLICK_PIXELS:
+			return # still a click
+		drag_moved = true
+		var target = compact_button if collapsed else panel
+		var pos = mouse + drag_offset
 		var area = get_viewport().get_visible_rect().size
-		pos.x = clamp(pos.x, 0, max(0, area.x - panel.rect_size.x))
-		pos.y = clamp(pos.y, 0, max(0, area.y - panel.rect_size.y))
+		pos.x = clamp(pos.x, 0, max(0, area.x - target.rect_size.x))
+		pos.y = clamp(pos.y, 0, max(0, area.y - target.rect_size.y))
 		panel.rect_position = pos
+		compact_button.rect_position = pos
 	elif event is InputEventMouseButton and event.button_index == BUTTON_LEFT and not event.pressed:
-		dragging = false
+		_end_drag()
+
+
+# letting go: after a drag the spot is saved, without one it was a click, which folds or opens the panel
+func _end_drag():
+	dragging = false
+	if drag_moved:
 		_save_config()
+	else:
+		_set_collapsed(not collapsed)
+
+
+func _set_collapsed(value):
+	collapsed = value
+	var field = _typing_field()
+	if field != null:
+		field.release_focus()
+	shop_open = false
+	if collapsed:
+		compact_button.rect_position = panel.rect_position
+	else:
+		# the panel opens where the button is, and is moved back on screen if it would stick out
+		var area = get_viewport().get_visible_rect().size
+		var size = panel.get_combined_minimum_size()
+		var pos = compact_button.rect_position
+		pos.x = clamp(pos.x, 0, max(0, area.x - size.x))
+		pos.y = clamp(pos.y, 0, max(0, area.y - size.y))
+		panel.rect_position = pos
+		compact_button.rect_position = pos
+		panel.rect_size = Vector2()
+	_save_config()
+
+
+# --- the server message colour ---
+# The server gives its messages a colour (sky blue unless the owner changed it). This slider picks another hue for
+# your own chat, with the same softness as the server's colour; Reset goes back. Only new messages change.
+
+func _wrap_color():
+	return chat_custom if chat_custom != "" else chat_color
+
+
+# softness (saturation and brightness) of the server's colour, so the slider only moves the hue
+func _color_sv():
+	var base = Color(chat_color if chat_color != "" else DEFAULT_CHAT_COLOR)
+	return [base.s, base.v]
+
+
+func _rainbow(sat, val):
+	var gradient = Gradient.new()
+	var colors = PoolColorArray()
+	var offsets = PoolRealArray()
+	for k in range(7):
+		colors.append(Color.from_hsv(k / 6.0, sat, val))
+		offsets.append(k / 6.0)
+	gradient.offsets = offsets
+	gradient.colors = colors
+	var tex = GradientTexture.new()
+	tex.gradient = gradient
+	tex.width = 256
+	return tex
+
+
+# a thin handle that shows against any colour
+func _knob(bright):
+	var img = Image.new()
+	img.create(8, 18, false, Image.FORMAT_RGBA8)
+	img.lock()
+	for x in range(8):
+		for y in range(18):
+			var edge = x == 0 or x == 7 or y == 0 or y == 17
+			var c = Color(0.1, 0.1, 0.15, 0.9) if edge else (Color(1, 1, 1, 1) if bright else Color(0.92, 0.97, 1.0, 0.95))
+			img.set_pixel(x, y, c)
+	img.unlock()
+	var tex = ImageTexture.new()
+	tex.create_from_image(img, 0)
+	return tex
+
+
+func _update_rainbow():
+	var sv = _color_sv()
+	color_rainbow.texture = _rainbow(sv[0], sv[1])
+	_sync_color_slider()
+	color_button.update()
+
+
+# the handle shows the hue of the colour in use, without counting as a change
+func _sync_color_slider():
+	var shown = _wrap_color() if _wrap_color() != "" else DEFAULT_CHAT_COLOR
+	color_slider.set_block_signals(true)
+	color_slider.value = Color(shown).h
+	color_slider.set_block_signals(false)
+
+
+func _on_color_toggle():
+	color_open = not color_open
+	if color_open:
+		_sync_color_slider()
+	color_button.update()
+
+
+func _on_color_slider(value):
+	var sv = _color_sv()
+	chat_custom = Color.from_hsv(value, sv[0], sv[1]).to_html(false).to_upper()
+	color_button.update()
+
+
+func _on_color_drag_ended(_changed):
+	_save_config()
+
+
+func _on_color_reset():
+	chat_custom = ""
+	_sync_color_slider()
+	color_button.update()
+	_save_config()
+
+
+# a round swatch of the colour in use
+func _draw_color_swatch():
+	var b = color_button
+	var shown = _wrap_color() if _wrap_color() != "" else DEFAULT_CHAT_COLOR
+	var o = b.rect_size / 2.0
+	b.draw_circle(o, 6.5, Color(shown))
+	b.draw_arc(o, 6.5, 0.0, TAU, 24, Color(0.55, 1.0, 1.0, 1.0) if color_open else Color(1, 1, 1, 0.9), 1.3, true)
+
+
+# the wolf face on the folded panel, drawn so it does not depend on any font or image
+func _draw_wolf():
+	var b = compact_button
+	var o = b.rect_size / 2.0 + Vector2(0, 1)
+	var c = Color(0.85, 1.0, 1.0, 0.95)
+	# head: tall ears, fur points on the cheeks, a long muzzle
+	var head = PoolVector2Array([
+		o + Vector2(-10, -13), o + Vector2(-4, -7), o + Vector2(4, -7), o + Vector2(10, -13),
+		o + Vector2(11, -3), o + Vector2(13, 1), o + Vector2(9, 3), o + Vector2(10, 7),
+		o + Vector2(4, 8), o + Vector2(2, 12), o + Vector2(-2, 12), o + Vector2(-4, 8),
+		o + Vector2(-10, 7), o + Vector2(-9, 3), o + Vector2(-13, 1), o + Vector2(-11, -3)])
+	b.draw_colored_polygon(head, Color(0.3, 1.0, 1.0, 0.22))
+	var outline = PoolVector2Array(head)
+	outline.append(head[0])
+	b.draw_polyline(outline, c, 1.4, true)
+	# inner ears
+	b.draw_line(o + Vector2(-8, -10), o + Vector2(-5, -7), c, 1.2, true)
+	b.draw_line(o + Vector2(8, -10), o + Vector2(5, -7), c, 1.2, true)
+	# slanted eyes and the nose on the muzzle
+	b.draw_line(o + Vector2(-8, -2), o + Vector2(-3, 0), c, 1.8, true)
+	b.draw_line(o + Vector2(8, -2), o + Vector2(3, 0), c, 1.8, true)
+	b.draw_colored_polygon(PoolVector2Array([o + Vector2(-2.5, 6), o + Vector2(2.5, 6), o + Vector2(0, 9.5)]), c)
 
 
 func _load_config():
@@ -2552,11 +2830,17 @@ func _load_config():
 		panel.rect_position = Vector2(float(data["x"]), float(data["y"]))
 	if typeof(data) == TYPE_DICTIONARY and data.has("prev_title"):
 		prev_title = str(data["prev_title"])
+	if typeof(data) == TYPE_DICTIONARY and data.has("collapsed"):
+		collapsed = bool(data["collapsed"])
+	if typeof(data) == TYPE_DICTIONARY and data.has("chat_custom"):
+		var saved = str(data["chat_custom"]).replace("#", "")
+		chat_custom = saved.to_upper() if saved.length() == 6 and saved.is_valid_hex_number() else ""
 
 
 func _save_config():
 	var file = File.new()
 	if file.open(CONFIG_PATH, File.WRITE) != OK:
 		return
-	file.store_string(to_json({"x": panel.rect_position.x, "y": panel.rect_position.y, "prev_title": prev_title}))
+	file.store_string(to_json({"x": panel.rect_position.x, "y": panel.rect_position.y, "prev_title": prev_title,
+		"collapsed": collapsed, "chat_custom": chat_custom}))
 	file.close()

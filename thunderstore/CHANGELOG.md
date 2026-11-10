@@ -1,3 +1,11 @@
+## 1.19.0
+- **Fold the panel:** click the `::` handle (without dragging) and the panel folds into a small wolf-face button in the
+  same spot. Drag the button to move it, click it to open the panel again. It remembers if it was folded.
+- **Chalk menu: Clear.** Admins get a small **Clear** button next to the canvas numbers that wipes the picked canvas
+  for everybody (second click to confirm). Needs the server's ClearChalk plugin.
+- **Message colour:** a small round swatch next to the **?** button opens a thin hue slider for the colour of server
+  messages in your own chat. The default stays the server's sky blue, **Reset** brings it back. Only new messages change.
+
 ## 1.18.1
 - Admins: **Ban** in the player list now opens a box for the reason (optional). The Ban button in the box, or Enter, sends the
   ban with the reason, which is written to bans.txt and shown in the Bans list. Click Ban again to close the box. The reason
