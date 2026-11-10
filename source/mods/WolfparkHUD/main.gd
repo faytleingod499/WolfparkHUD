@@ -245,7 +245,7 @@ func _build_ui():
 	compact_button = Button.new()
 	compact_button.visible = false
 	compact_button.focus_mode = Control.FOCUS_NONE
-	compact_button.rect_min_size = Vector2(24, 20)
+	compact_button.rect_min_size = Vector2(34, 34)
 	compact_button.rect_position = DEFAULT_POS
 	compact_button.mouse_default_cursor_shape = Control.CURSOR_MOVE
 	compact_button.connect("gui_input", self, "_on_grip_input")
@@ -2850,8 +2850,8 @@ func _draw_color_swatch():
 # the wolf face on the folded panel, drawn so it does not depend on any font or image
 func _draw_wolf():
 	var b = compact_button
-	# drawn at its original size around (0, 0), then scaled down to fit the 24x20 button
-	b.draw_set_transform(b.rect_size / 2.0 + Vector2(0, 0.5), 0.0, Vector2(0.7, 0.7))
+	# drawn around (0, 0) and scaled to fit the 34x34 button (the size of the Plushie mod's folded button)
+	b.draw_set_transform(b.rect_size / 2.0 + Vector2(0, 0.5), 0.0, Vector2(1.1, 1.1))
 	var o = Vector2.ZERO
 	var c = Color(0.85, 1.0, 1.0, 0.95)
 	# head: tall ears, fur points on the cheeks, a long muzzle

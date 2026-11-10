@@ -1,3 +1,6 @@
+## 1.19.3
+- The folded wolf button is now 34x34, the same size as the folded button of the Plushie mod.
+
 ## 1.19.2
 - The message colour bar is half as thick and the **Reset** button next to it is slimmer to match.
 - The folded wolf button is now the same size as the other small buttons (shield, ?, colour).
