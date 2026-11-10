@@ -1,3 +1,7 @@
+## 1.19.1
+- **Message colour:** the slider now also reaches **white** (left end) and **black** (right end), next to the hue rainbow.
+  The default stays the server's sky blue.
+
 ## 1.19.0
 - **Fold the panel:** click the `::` handle (without dragging) and the panel folds into a small wolf-face button in the
   same spot. Drag the button to move it, click it to open the panel again. It remembers if it was folded.

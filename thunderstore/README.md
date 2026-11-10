@@ -18,7 +18,7 @@ Drag the `::` handle to move the panel; it remembers where you put it. **Click**
 to fold the panel into a small wolf-face button, drag that to move it, click it to open the panel again.
 Commands you type starting with `!` go to the server only and don't show in chat. Server messages show in
 their own colour (sky blue by default), and the chat window starts expanded. The round colour swatch next to
-the **?** button opens a hue slider to pick another colour for server messages in your own chat; **Reset** goes
+the **?** button opens a hue slider (with white at the left end and black at the right end) to pick another colour for server messages in your own chat; **Reset** goes
 back to the server's colour.
 
 While you're on the server you can also wear the titles **Lonely** and **Battery Charger** (Cosmetics, Misc tab).

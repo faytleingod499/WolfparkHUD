@@ -20,6 +20,8 @@ const CHALK_DEBOUNCE_MS = 1500
 const ARM_MS = 3000
 const DRAG_CLICK_PIXELS = 4 # a press that moves less than this is a click on the grip / the wolf button
 const COLOR_SLIDER_WIDTH = 150
+const COLOR_WHITE_END = 0.08 # the slider: white up to here, then the hues, then black from COLOR_BLACK_START
+const COLOR_BLACK_START = 0.92
 const DEFAULT_CHAT_COLOR = "87CEEB" # sky blue, what the server gives its messages unless the owner changed it
 
 var steam = null
@@ -462,6 +464,14 @@ func _build_ui():
 	color_rainbow.margin_bottom = -5
 	color_rainbow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	track.add_child(color_rainbow)
+	var outline = Panel.new()
+	outline.add_stylebox_override("panel", _glass(Color(0, 0, 0, 0), Color(1, 1, 1, 0.45), 2, 0))
+	outline.anchor_right = 1.0
+	outline.anchor_bottom = 1.0
+	outline.margin_top = 5
+	outline.margin_bottom = -5
+	outline.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	track.add_child(outline)
 	color_slider = HSlider.new()
 	color_slider.min_value = 0.0
 	color_slider.max_value = 1.0
@@ -2719,15 +2729,44 @@ func _rainbow(sat, val):
 	var gradient = Gradient.new()
 	var colors = PoolColorArray()
 	var offsets = PoolRealArray()
+	var span = COLOR_BLACK_START - COLOR_WHITE_END
+	colors.append(Color(1, 1, 1))
+	offsets.append(0.0)
+	colors.append(Color(1, 1, 1))
+	offsets.append(COLOR_WHITE_END - 0.002)
 	for k in range(7):
 		colors.append(Color.from_hsv(k / 6.0, sat, val))
-		offsets.append(k / 6.0)
+		offsets.append(COLOR_WHITE_END + span * k / 6.0)
+	colors.append(Color(0, 0, 0))
+	offsets.append(COLOR_BLACK_START + 0.002)
+	colors.append(Color(0, 0, 0))
+	offsets.append(1.0)
 	gradient.offsets = offsets
 	gradient.colors = colors
 	var tex = GradientTexture.new()
 	tex.gradient = gradient
 	tex.width = 256
 	return tex
+
+
+# the slider position -> the colour (hex): white at the left end, the hues in the middle, black at the right end
+func _color_for_slider(value):
+	if value < COLOR_WHITE_END:
+		return "FFFFFF"
+	if value > COLOR_BLACK_START:
+		return "000000"
+	var sv = _color_sv()
+	var hue = (value - COLOR_WHITE_END) / (COLOR_BLACK_START - COLOR_WHITE_END)
+	return Color.from_hsv(hue, sv[0], sv[1]).to_html(false).to_upper()
+
+
+# and back: where the handle sits for a colour
+func _slider_for_color(hex):
+	if hex.to_upper() == "FFFFFF":
+		return COLOR_WHITE_END / 2.0
+	if hex.to_upper() == "000000":
+		return (COLOR_BLACK_START + 1.0) / 2.0
+	return COLOR_WHITE_END + Color(hex).h * (COLOR_BLACK_START - COLOR_WHITE_END)
 
 
 # a thin handle that shows against any colour
@@ -2757,7 +2796,7 @@ func _update_rainbow():
 func _sync_color_slider():
 	var shown = _wrap_color() if _wrap_color() != "" else DEFAULT_CHAT_COLOR
 	color_slider.set_block_signals(true)
-	color_slider.value = Color(shown).h
+	color_slider.value = _slider_for_color(shown)
 	color_slider.set_block_signals(false)
 
 
@@ -2769,8 +2808,7 @@ func _on_color_toggle():
 
 
 func _on_color_slider(value):
-	var sv = _color_sv()
-	chat_custom = Color.from_hsv(value, sv[0], sv[1]).to_html(false).to_upper()
+	chat_custom = _color_for_slider(value)
 	color_button.update()
 
 
