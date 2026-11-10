@@ -1,3 +1,7 @@
+## 1.19.2
+- The message colour bar is half as thick and the **Reset** button next to it is slimmer to match.
+- The folded wolf button is now the same size as the other small buttons (shield, ?, colour).
+
 ## 1.19.1
 - **Message colour:** the slider now also reaches **white** (left end) and **black** (right end), next to the hue rainbow.
   The default stays the server's sky blue.

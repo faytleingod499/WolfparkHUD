@@ -199,6 +199,7 @@ var color_open = false
 var color_button
 var color_box
 var color_slider
+var color_reset
 var color_rainbow
 var chalk_clear_button
 var theme_applied = false
@@ -244,13 +245,13 @@ func _build_ui():
 	compact_button = Button.new()
 	compact_button.visible = false
 	compact_button.focus_mode = Control.FOCUS_NONE
-	compact_button.rect_min_size = Vector2(36, 30)
+	compact_button.rect_min_size = Vector2(24, 20)
 	compact_button.rect_position = DEFAULT_POS
 	compact_button.mouse_default_cursor_shape = Control.CURSOR_MOVE
 	compact_button.connect("gui_input", self, "_on_grip_input")
 	compact_button.connect("draw", self, "_draw_wolf")
 	_glass_button(compact_button)
-	compact_button.add_stylebox_override("normal", _glass(Color(0.06, 0.12, 0.18, 0.55), Color(0.55, 1.0, 1.0, 0.45), 10, 6))
+	compact_button.add_stylebox_override("normal", _glass(Color(0.06, 0.12, 0.18, 0.55), Color(0.55, 1.0, 1.0, 0.45), 8, 6))
 	layer.add_child(compact_button)
 	_add_tooltip(compact_button, "Wolf Park", "Click to open the panel, drag to move it")
 
@@ -450,7 +451,7 @@ func _build_ui():
 	color_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(color_box)
 	var track = Control.new()
-	track.rect_min_size = Vector2(COLOR_SLIDER_WIDTH, 18)
+	track.rect_min_size = Vector2(COLOR_SLIDER_WIDTH, 10)
 	track.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	track.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	color_box.add_child(track)
@@ -460,16 +461,16 @@ func _build_ui():
 	color_rainbow.stretch_mode = TextureRect.STRETCH_SCALE
 	color_rainbow.anchor_right = 1.0
 	color_rainbow.anchor_bottom = 1.0
-	color_rainbow.margin_top = 5
-	color_rainbow.margin_bottom = -5
+	color_rainbow.margin_top = 3
+	color_rainbow.margin_bottom = -3
 	color_rainbow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	track.add_child(color_rainbow)
 	var outline = Panel.new()
 	outline.add_stylebox_override("panel", _glass(Color(0, 0, 0, 0), Color(1, 1, 1, 0.45), 2, 0))
 	outline.anchor_right = 1.0
 	outline.anchor_bottom = 1.0
-	outline.margin_top = 5
-	outline.margin_bottom = -5
+	outline.margin_top = 3
+	outline.margin_bottom = -3
 	outline.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	track.add_child(outline)
 	color_slider = HSlider.new()
@@ -488,11 +489,22 @@ func _build_ui():
 	color_slider.connect("value_changed", self, "_on_color_slider")
 	color_slider.connect("drag_ended", self, "_on_color_drag_ended")
 	track.add_child(color_slider)
-	var color_reset = Button.new()
+	color_reset = Button.new()
 	color_reset.text = "Reset"
 	color_reset.focus_mode = Control.FOCUS_NONE
 	color_reset.connect("pressed", self, "_on_color_reset")
 	_glass_button(color_reset)
+	# as thin as the bar: tight margins, small text
+	for state in ["normal", "hover", "pressed", "disabled"]:
+		var style = color_reset.get_stylebox(state).duplicate()
+		style.content_margin_top = 0
+		style.content_margin_bottom = 0
+		style.content_margin_left = 6
+		style.content_margin_right = 6
+		style.set_corner_radius_all(5)
+		color_reset.add_stylebox_override(state, style)
+	color_reset.rect_min_size = Vector2(0, 10)
+	color_reset.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	color_box.add_child(color_reset)
 	_add_tooltip(color_reset, "Reset", "Back to the colour the server uses")
 
@@ -2772,11 +2784,11 @@ func _slider_for_color(hex):
 # a thin handle that shows against any colour
 func _knob(bright):
 	var img = Image.new()
-	img.create(8, 18, false, Image.FORMAT_RGBA8)
+	img.create(6, 10, false, Image.FORMAT_RGBA8)
 	img.lock()
-	for x in range(8):
-		for y in range(18):
-			var edge = x == 0 or x == 7 or y == 0 or y == 17
+	for x in range(6):
+		for y in range(10):
+			var edge = x == 0 or x == 5 or y == 0 or y == 9
 			var c = Color(0.1, 0.1, 0.15, 0.9) if edge else (Color(1, 1, 1, 1) if bright else Color(0.92, 0.97, 1.0, 0.95))
 			img.set_pixel(x, y, c)
 	img.unlock()
@@ -2804,6 +2816,9 @@ func _on_color_toggle():
 	color_open = not color_open
 	if color_open:
 		_sync_color_slider()
+		var font = _small_font()
+		if font != null:
+			color_reset.add_font_override("font", font)
 	color_button.update()
 
 
@@ -2835,7 +2850,9 @@ func _draw_color_swatch():
 # the wolf face on the folded panel, drawn so it does not depend on any font or image
 func _draw_wolf():
 	var b = compact_button
-	var o = b.rect_size / 2.0 + Vector2(0, 1)
+	# drawn at its original size around (0, 0), then scaled down to fit the 24x20 button
+	b.draw_set_transform(b.rect_size / 2.0 + Vector2(0, 0.5), 0.0, Vector2(0.7, 0.7))
+	var o = Vector2.ZERO
 	var c = Color(0.85, 1.0, 1.0, 0.95)
 	# head: tall ears, fur points on the cheeks, a long muzzle
 	var head = PoolVector2Array([
